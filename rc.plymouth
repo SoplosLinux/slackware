@@ -1,0 +1,57 @@
+#!/bin/sh
+# Este script maneja el inicio y apagado del servicio de Plymouth durante el arranque y reinicio del sistema.
+
+# Redirige la salida estándar y de error a /dev/null para evitar que se muestren mensajes de texto en la consola
+exec >/dev/null 2>&1
+
+# Inicia el demonio de Plymouth
+start_plymouth() {
+    /usr/sbin/plymouthd --pid-file=/run/plymouth/pid
+}
+
+# Detiene el demonio de Plymouth
+stop_plymouth() {
+    if [ -f /run/plymouth/pid ]; then
+        pid=$(cat /run/plymouth/pid)
+        if [ -n "$pid" ]; then
+            kill "$pid" >/dev/null 2>&1
+            rm /run/plymouth/pid >/dev/null 2>&1
+        fi
+    fi
+}
+
+# Muestra la pantalla de inicio de Plymouth
+show_plymouth_splash() {
+    /usr/bin/plymouth --show-splash
+}
+
+# Detiene la pantalla de inicio de Plymouth
+hide_plymouth_splash() {
+    /usr/bin/plymouth --hide-splash
+}
+
+# Determina si el sistema se está apagando o reiniciando
+case "$1" in
+    start)
+        echo "Iniciando servicio de Plymouth..."
+        start_plymouth
+        show_plymouth_splash
+        ;;
+    stop)
+        echo "Deteniendo servicio de Plymouth..."
+        hide_plymouth_splash
+        stop_plymouth
+        ;;
+    restart)
+        echo "Reiniciando servicio de Plymouth..."
+        stop_plymouth
+        start_plymouth
+        show_plymouth_splash
+        ;;
+    *)
+        echo "Uso: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0
