@@ -1,8 +1,0 @@
-[Plymouth Theme]
-Name=Slackware Plymouth
-Description=A Plymouth of Slackware by Soplos Linux
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/slack
-ScriptFile=/usr/share/plymouth/themes/slack/slack.script
