@@ -39,7 +39,8 @@ PROTECTED=" llvm mesa glibc glibc-solibs python3 perl gcc gcc-g++ make binutils
  plasma-workspace plasma-desktop kwin kwin-x11 libplasma sddm xorg-server
  samba vulkan-sdk pkgtools sysvinit-scripts aaa_base aaa_libraries grub
  elogind pam shadow coreutils bash util-linux dolphin konsole kate okular
- gwenview ark spectacle kcalc systemsettings "
+ gwenview ark spectacle kcalc systemsettings elisa dragon
+ guile lua luajit "
 
 SECTIONS=()
 declare -A DEFAULT DESC PKGS
@@ -75,7 +76,8 @@ add_section games on "KDE and classic games" \
   kmines knetwalk knights kolf kpat kreversi kshisen ksirk ksnakeduel \
   kspaceduel ksudoku ktuberling kubrick lskat palapeli picmi gnugo \
   knavalbattle klickety katomic kblackbox konquest ksquares kollision \
-  skladnik libkdegames libkmahjongg
+  skladnik libkdegames libkmahjongg kdominate bsd-games nethack gnuchess \
+  xgames freecell-solver python-pysol_cards
 
 add_section education on "KDE education and science" \
   gcompris-qt klettres kalzium kgeography kiten minuet parley step kig \
@@ -101,10 +103,10 @@ add_section kde-heavy on "Heavy KDE applications: office, media, photo" \
 
 add_section kde-extra on "Other KDE applications and developer tools" \
   koko neochat tokodon kdeconnect-kde khelpcenter kgpg kleopatra marknote \
-  okteta lokalize kdev-php elisa ghostwriter klevernotes kasts haruna juk \
+  okteta lokalize kdev-php ghostwriter klevernotes kasts haruna juk \
   kcachegrind subtitlecomposer kmouth krdc krfb kgraphviewer skanlite \
   kompare audex audiocd-kio yakuake krename kteatime kmag kfind kdf kcron \
-  arianna kimagemapeditor filelight kbackup alkimia kalk kcharselect dragon \
+  arianna kimagemapeditor filelight kbackup alkimia kalk kcharselect \
   kamera kamoso kruler kmousetool isoimagewriter kontrast keysmith \
   kapptemplate kdevelop-pg-qt ktimer kdebugsettings kde-dev-scripts \
   kde-dev-utils poxml massif-visualizer alligator qrca francis \
@@ -114,7 +116,7 @@ add_section kde-extra on "Other KDE applications and developer tools" \
 
 add_section dev-languages on "Compilers and languages rarely used" \
   gcc-gnat gcc-gdc gcc-go gcc-objc gcc-gfortran gcc-gcobol gcc-rust gcc-gm2 \
-  gnucobol google-go-lang clisp guile ruby python2 poke p2c dev86 kdevelop \
+  gnucobol google-go-lang clisp ruby python2 poke p2c dev86 kdevelop \
   kdev-python umbrello libgccjit vala
 
 add_section dev-tools on "Secondary development tools" \
@@ -155,7 +157,7 @@ add_section kernel-source on "Kernel source (only needed to build external kerne
 add_section dev-extra off "Build tools not needed for a kernel (cmake, autotools, meson, ...)" \
   cmake Cython python-pip gdb re2c meson ninja autoconf-archive parallel \
   autoconf libtool automake gettext-tools extra-cmake-modules stb strace \
-  lua luajit help2man jq nv-codec-headers opencl-headers AMF-headers pmake \
+  help2man jq nv-codec-headers opencl-headers AMF-headers pmake \
   gperf patchelf check intltool clinfo rinutils sassc slacktrack
 
 add_section input-methods off "Input methods and engines (needed to type CJK)" \
