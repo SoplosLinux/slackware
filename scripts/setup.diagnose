@@ -1,0 +1,114 @@
+#!/bin/bash
+#BLURB="Check Plasma for missing libraries and QML modules"
+#
+# Script: setup.diagnose
+# Description: Looks for what a debloat can break and the dependency map cannot
+#              see: Plasma and KWin processes that are not running, programs
+#              with missing libraries, QML modules imported by Plasma, KWin and
+#              SDDM that are not installed, and errors in the session log.
+#              Read only. It prints a short report and saves it to /root/diag.txt.
+# Author: [SoplosLinux]
+# Version: 1.0
+#
+# Usage: setup.diagnose            (as root, inside the running Plasma session)
+
+OUT=${OUT:-/root/diag.txt}
+QML_ROOTS=${QML_ROOTS:-"/usr/lib64/qt6/qml /usr/lib64/qml"}
+SCAN_DIRS=${SCAN_DIRS:-"/usr/share/kwin /usr/share/plasma /usr/share/sddm /usr/lib64/qt6/qml/org/kde"}
+BINARIES=${BINARIES:-"kwin_x11 kwin_wayland plasmashell kglobalacceld startplasma-x11 startplasma-wayland sddm sddm-greeter-qt6 kded6 kactivitymanagerd"}
+HOMES=${HOMES:-/home/*}
+
+: > "$OUT"
+say() { echo "$@" | tee -a "$OUT"; }
+# full output goes to the file, only the first N lines to the screen
+show() {
+  local n=$1
+  tee -a "$OUT" | head -n "$n"
+}
+
+say "== 1. Plasma processes"
+for p in kwin_x11 kwin_wayland plasmashell kglobalacceld kded6 kactivitymanagerd; do
+  if pgrep -x "$p" > /dev/null 2>&1; then say "  running:     $p"; else say "  NOT running: $p"; fi
+done
+
+say
+say "== 2. Programs with a missing library"
+missing=0
+for b in $BINARIES; do
+  path=$(command -v "$b" 2> /dev/null)
+  [ -z "$path" ] && for d in /usr/libexec /usr/lib64/libexec /usr/lib64/qt6/libexec; do [ -x "$d/$b" ] && path=$d/$b; done
+  [ -n "$path" ] || continue
+  out=$(ldd "$path" 2> /dev/null | grep 'not found')
+  if [ -n "$out" ]; then
+    missing=1
+    say "  $b:"
+    echo "$out" | sed 's/^/      /' | show 6
+  fi
+done
+[ "$missing" -eq 0 ] && say "  none"
+
+say
+say "== 3. QML modules imported by Plasma, KWin and SDDM that are not installed"
+modules=$(find $SCAN_DIRS \( -name '*.qml' -o -name '*.js' \) -type f 2> /dev/null \
+  | xargs -r grep -hE '^[[:space:]]*import[[:space:]]+[A-Za-z]' 2> /dev/null \
+  | sed -E 's/^[[:space:]]*import[[:space:]]+([A-Za-z0-9_.]+).*/\1/' | sort -u)
+gone=""
+for m in $modules; do
+  rel=${m//./\/}
+  ok=0
+  for r in $QML_ROOTS; do
+    if [ -e "$r/$rel/qmldir" ] || [ -d "$r/$rel" ]; then ok=1; fi
+  done
+  [ "$ok" -eq 0 ] && gone+="  missing: $m"$'\n'
+done
+if [ -z "$gone" ]; then
+  say "  none"
+else
+  printf '%s' "$gone" | show 30
+fi
+say "  ($(echo "$modules" | wc -w) modules checked)"
+
+say
+say "== 4. Autostart and D-Bus services that point at a program that is gone"
+AUTO_DIRS=${AUTO_DIRS:-"/etc/xdg/autostart /usr/share/dbus-1/services /usr/share/dbus-1/system-services /usr/share/applications"}
+dead=""
+for dir in $AUTO_DIRS; do
+  for f in "$dir"/*.desktop "$dir"/*.service; do
+    [ -f "$f" ] || continue
+    # skip entries the desktop hides anyway
+    grep -qE '^(Hidden|NoDisplay)=true' "$f" && [ "$dir" = "/usr/share/applications" ] && continue
+    exe=$(grep -m1 -E '^Exec=' "$f" | sed -E 's/^Exec=//; s/^(env +([A-Z_]+=[^ ]+ +)*)//; s/^"?([^" ]+)"?.*/\1/')
+    [ -n "$exe" ] || continue
+    case "$exe" in
+      /*) [ -x "$exe" ] || dead+="  $f -> $exe"$'\n' ;;
+      *)  command -v "$exe" > /dev/null 2>&1 || dead+="  $f -> $exe"$'\n' ;;
+    esac
+  done
+done
+if [ -z "$dead" ]; then say "  none"; else printf '%s' "$dead" | show 25; fi
+
+say
+say "== 5. Environment of the Plasma session"
+pid=$(pgrep -x plasmashell 2> /dev/null | head -n 1)
+if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then
+  tr '\0' '\n' < "/proc/$pid/environ" | grep -E '^(XDG_SESSION_TYPE|XDG_CURRENT_DESKTOP|GTK_IM_MODULE|QT_IM_MODULE|XMODIFIERS|WAYLAND_DISPLAY|DISPLAY|LANG)=' | sed 's/^/  /' | show 12
+else
+  say "  plasmashell is not running, nothing to read"
+fi
+for p in fcitx5 ibus-daemon; do
+  if pgrep -x "$p" > /dev/null 2>&1; then say "  running:     $p"; else say "  NOT running: $p"; fi
+done
+
+say
+say "== 6. Errors in the session logs"
+for h in $HOMES; do
+  for f in "$h"/.local/share/sddm/*.log "$h"/.xsession-errors; do
+    [ -f "$f" ] || continue
+    say "  $f"
+    grep -iE 'error|failed|cannot|not found|is not installed|module .* not|plugin .* not' "$f" 2> /dev/null \
+      | tail -n 12 | cut -c1-130 | sed 's/^/      /' | show 12
+  done
+done
+
+say
+say "Full report saved in $OUT"

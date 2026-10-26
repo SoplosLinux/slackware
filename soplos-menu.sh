@@ -73,6 +73,7 @@ tr_add m6 "Find library packages nobody uses (report only)" "Buscar paquetes de 
 tr_add m7 "Build kernel 6.8.9 (Slackware 15)" "Compilar el kernel 6.8.9 (Slackware 15)"
 tr_add m8 "Read the Plymouth tutorial" "Leer el tutorial de Plymouth"
 tr_add m9 "Download the latest scripts again" "Descargar de nuevo los últimos scripts"
+tr_add mD "Diagnose Plasma: missing libraries and QML modules" "Diagnosticar Plasma: librerías y módulos QML que faltan"
 tr_add mL "Change the language" "Cambiar el idioma"
 tr_add mq "Quit" "Salir"
 
@@ -327,7 +328,7 @@ main() {
     rel_text="$(t m_text) ${REL:-$(t unknown)}"
     c=$(choose "Soplos Linux" "$rel_text" \
       1 "$(t m1)" 2 "$(t m2)" 3 "$(t m3)" 4 "$(t m4)" 5 "$(t m5)" 6 "$(t m6)" \
-      7 "$(t m7)" 8 "$(t m8)" 9 "$(t m9)" L "$(t mL)" 0 "$(t mq)")
+      7 "$(t m7)" 8 "$(t m8)" 9 "$(t m9)" D "$(t mD)" L "$(t mL)" 0 "$(t mq)")
     clear
     case "$c" in
       1) menu_clean ;;
@@ -342,6 +343,7 @@ main() {
         else ${PAGER:-less} "$REPO/docs/plymouth-tutorial.en.txt"; fi
         ;;
       9) fetch_repo refresh; say refreshed ;;
+      D|d) run scripts/setup.diagnose ;;
       L|l) pick_language ;;
       0|"") break ;;
       *) echo "$(t unknown_opt) $c" ;;
