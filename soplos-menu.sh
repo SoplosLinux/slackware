@@ -344,13 +344,13 @@ run_plymouth() {
   run "$REL/scripts/setup.plymouth.installer"
 }
 
-# Creates the command and the menu entry that start the downloaded menu
+# Creates the command and the menu entry that start the downloaded menu, and
+# says what it did. Nothing is printed when both are already up to date.
 install_launcher() {
   [ -n "$LOCAL" ] && return
-  mkdir -p "$(dirname "$BIN")" "$(dirname "$DESKTOP")"
-  printf '#!/bin/sh\nexec bash "%s/repo/soplos-menu.sh" "$@"\n' "$WORK" > "$BIN"
-  chmod 755 "$BIN"
-  cat > "$DESKTOP" << EOF
+  local wrapper entry
+  wrapper=$(printf '#!/bin/sh\nexec bash "%s/repo/soplos-menu.sh" "$@"\n' "$WORK")
+  entry=$(cat << EOF
 [Desktop Entry]
 Type=Application
 Name=Soplos Slackware Tools
@@ -360,8 +360,29 @@ Comment[es]=Limpiar Plasma, primeros pasos, Plymouth, Flatpak y más
 Exec=su -c $BIN
 Icon=preferences-system
 Terminal=true
-Categories=System;Settings;
+Categories=System;
 EOF
+)
+  local changed=0
+  if [ "$(cat "$BIN" 2> /dev/null)" != "$wrapper" ]; then
+    mkdir -p "$(dirname "$BIN")" && printf '%s\n' "$wrapper" > "$BIN" && chmod 755 "$BIN" || { echo "Error: could not create $BIN" >&2; return 1; }
+    changed=1
+  fi
+  if [ "$(cat "$DESKTOP" 2> /dev/null)" != "$entry" ]; then
+    mkdir -p "$(dirname "$DESKTOP")" && printf '%s\n' "$entry" > "$DESKTOP" && chmod 644 "$DESKTOP" || { echo "Error: could not create $DESKTOP" >&2; return 1; }
+    changed=1
+  fi
+  if [ "$changed" -eq 1 ]; then
+    echo
+    echo "Installed:"
+    echo "  command:    $BIN"
+    echo "  menu entry: $DESKTOP"
+    echo "  scripts:    $WORK"
+    echo "Open the application launcher and search for \"Soplos\", or run soplos-menu as root."
+    echo "If the entry does not show up yet, run kbuildsycoca6 as your user, or log in again."
+    echo
+    read -r -p "Press Enter to continue. " _ <"$TTY"
+  fi
 }
 
 # Removes the command, the menu entry and the downloaded copy
