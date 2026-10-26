@@ -44,6 +44,8 @@ Plymouth and open-vm-tools are built from SlackBuilds.org with sbopkg.
 | `16/` | Slackware 16 (-current): patches for `rc.S` and `rc.6`, a geninitrd hook that regenerates the GRUB menu on kernel installs, and its Plymouth installer. See `16/README.txt` |
 | `soplos-menu.sh` | The menu described above |
 | `scripts/` | Scripts valid for both releases: `setup.debloat` (clean Plasma install), `setup.orphans` (read-only library scanner), `setup.firststeps` and `setup.software` |
+| `data/` | `deps.tsv`, the map of which Slackware package needs which, used by the debloat |
+| `tools/` | `gen-deps.py`, which rebuilds `data/deps.tsv` from a Slackware mirror |
 | `plasma-splash/` | KDE Plasma look-and-feel splash screen (Qt5, not tested on Plasma 6) |
 | `docs/` | Plymouth tutorial in English and Spanish, first steps, kernel build, SDDM |
 | `artwork/` | Wallpapers (JPG), logos and a Plymouth screenshot |
@@ -58,8 +60,19 @@ unchecked, then run, as root:
 ./scripts/setup.debloat       # remove it, asking once
 ```
 
-Optional sections (build tools, input methods, printing) are off by default;
-see `./scripts/setup.debloat -l`.
+Optional sections (input methods, printing, documentation tools) are off by
+default; see `./scripts/setup.debloat -l`. The development section removes
+every package of the `d` series except the basic toolchain (gcc, g++, binutils,
+make, bison, flex, m4, perl, python3, git, kernel headers, llvm, libtool).
+
+Slackware does not track dependencies, so the script does it itself. It reads
+`data/deps.tsv` and keeps any package that an installed package that stays
+still needs: for example `guile` because `make` links to it, or `gcc-gfortran`
+because `openblas` does. The list of what was kept is printed before anything
+is removed. The map does not see libraries loaded by name at run time, Python
+modules or QML modules, so take a snapshot first. To rebuild the map for a newer
+-current: `python3 tools/gen-deps.py` (downloads about 5 GB, streams, writes
+nothing else to disk).
 
 ## Plymouth
 

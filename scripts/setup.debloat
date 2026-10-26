@@ -8,18 +8,23 @@
 #              network clients and similar packages that a regular Plasma
 #              distribution does not ship.
 # Author: [SoplosLinux]
-# Version: 2.0
+# Version: 2.1
 #
 # Slackware does not track dependencies: removepkg removes exactly what it is
-# told to. Take a snapshot or a backup before running this script.
+# told to. This script adds a check of its own: it reads data/deps.tsv, a map
+# of which package needs which (built by tools/gen-deps.py), and it keeps every
+# package that an installed package which stays still needs. What the map
+# cannot see: libraries loaded by name at run time, Python modules and QML
+# modules. Take a snapshot or a backup before running this script.
 #
 # Usage: setup.debloat [options]
 #   -n         dry run: show what would be removed and exit
-#   -v         also list every package name
+#   -v         also list every package name and the dependency details
 #   -y         do not ask for confirmation
 #   -a         also apply the optional sections (see -l)
 #   -o NAME    also apply one optional section (can be repeated)
 #   -x NAME    skip one section (can be repeated)
+#   -f         skip the dependency check (not recommended)
 #   -l         list the sections and exit
 #   -h         show this help
 #
@@ -30,17 +35,23 @@
 
 PKGDIR=${PKGDIR:-/var/log/packages}
 LOG=${LOG:-/var/log/setup.debloat.log}
-DRY=0 VERBOSE=0 ASSUME_YES=0 ALL=0 LIST=0
+DEPS=${DEPS:-$(cd "$(dirname "$0")/.." 2> /dev/null && pwd)/data/deps.tsv}
+DRY=0 VERBOSE=0 ASSUME_YES=0 ALL=0 LIST=0 FORCE=0
 WITH=" " WITHOUT=" "
 
 # Packages that must never be removed, even if a section lists them by mistake
 PROTECTED=" llvm mesa glibc glibc-solibs python3 perl gcc gcc-g++ make binutils
- git cmake kernel-headers kernel-generic kernel-firmware kernel-modules
+ git kernel-headers kernel-generic kernel-firmware kernel-modules
  plasma-workspace plasma-desktop kwin kwin-x11 libplasma sddm xorg-server
  samba vulkan-sdk pkgtools sysvinit-scripts aaa_base aaa_libraries grub
  elogind pam shadow coreutils bash util-linux dolphin konsole kate okular
- gwenview ark spectacle kcalc systemsettings elisa dragon
- guile lua luajit "
+ gwenview ark spectacle kcalc systemsettings elisa dragon guile "
+
+# Dependencies that are in the map but only concern a language binding or a
+# helper tool nobody uses, so they must not keep a package installed:
+#   gcc -> gcc-go        buildid, test2json and vet, the Go helpers shipped in gcc
+#   gettext -> gcc-gm2   libintl_m2, the Modula-2 binding of gettext
+IGNORE=" gcc>gcc-go gettext>gcc-gm2 "
 
 SECTIONS=()
 declare -A DEFAULT DESC PKGS
@@ -55,7 +66,7 @@ add_section() {
   PKGS[$name]="$*"
 }
 
-while getopts "nvyao:x:lh" opt; do
+while getopts "nvyao:x:flh" opt; do
   case "$opt" in
     n) DRY=1 ;;
     v) VERBOSE=1 ;;
@@ -63,6 +74,7 @@ while getopts "nvyao:x:lh" opt; do
     a) ALL=1 ;;
     o) WITH+="$OPTARG " ;;
     x) WITHOUT+="$OPTARG " ;;
+    f) FORCE=1 ;;
     l) LIST=1 ;;
     *) sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   esac
@@ -77,7 +89,7 @@ add_section games on "KDE and classic games" \
   kspaceduel ksudoku ktuberling kubrick lskat palapeli picmi gnugo \
   knavalbattle klickety katomic kblackbox konquest ksquares kollision \
   skladnik libkdegames libkmahjongg kdominate bsd-games nethack gnuchess \
-  xgames freecell-solver python-pysol_cards
+  xgames xsnow freecell-solver python-pysol_cards
 
 add_section education on "KDE education and science" \
   gcompris-qt klettres kalzium kgeography kiten minuet parley step kig \
@@ -94,7 +106,7 @@ add_section pim on "KDE PIM: KMail, KOrganizer, Akonadi and friends" \
   mailcommon pimcommon mailimporter incidenceeditor eventviews \
   calendarsupport libksieve kmailtransport kmime kimap kldap ktnef \
   kpimtextedit grantleetheme kmbox kcalutils libkdepim kontactinterface \
-  kidentitymanagement ksmtp libgravatar kpkpass kitinerary
+  kidentitymanagement ksmtp libgravatar kpkpass kitinerary mimetreeparser
 
 add_section kde-heavy on "Heavy KDE applications: office, media, photo" \
   krita digikam calligra calligraplan kdenlive amarok k3b kmymoney kwave \
@@ -112,24 +124,29 @@ add_section kde-extra on "Other KDE applications and developer tools" \
   kde-dev-utils poxml massif-visualizer alligator qrca francis \
   kdesdk-thumbnailers plasma-sdk kirigami-gallery ksystemlog kolourpaint \
   plasma-bigscreen khealthcertificate kosmindoormap kcolorchooser \
-  keditbookmarks
+  keditbookmarks accessibility-inspector
 
-add_section dev-languages on "Compilers and languages rarely used" \
-  gcc-gnat gcc-gdc gcc-go gcc-objc gcc-gfortran gcc-gcobol gcc-rust gcc-gm2 \
-  gnucobol google-go-lang clisp ruby python2 poke p2c dev86 kdevelop \
-  kdev-python umbrello libgccjit vala
-
-add_section dev-tools on "Secondary development tools" \
-  mercurial subversion cvs rcs valgrind doxygen oprofile scons swig mold \
-  distcc icecream ccache cscope universal-ctags tree-sitter googletest gyp \
-  indent yasm nasm
-
-add_section rust on "Rust toolchain (only needed to build some software)" \
-  rust cargo-c rust-bindgen cbindgen cargo-vendor-filterer corrosion
+# Every package of the Slackware "d" series except the basic toolchain that is
+# enough to build a kernel: gcc gcc-g++ binutils make bison flex m4 perl
+# python3 git kernel-headers pkgconf pahole llvm libtool guile dkms. The
+# dependency check below keeps any of these that an installed package needs
+# (for example gcc-gfortran for openblas, or lua for gnuplot).
+add_section dev on "Development tools beyond a basic C and C++ toolchain" \
+  AMF-headers autoconf autoconf-archive automake cargo-c \
+  cargo-vendor-filterer cbindgen ccache check clinfo clisp cmake corrosion \
+  cscope cvs Cython ddd dev86 distcc doxygen gcc-gcobol gcc-gdc gcc-gfortran \
+  gcc-gm2 gcc-gnat gcc-go gcc-objc gcc-rust gdb gettext-tools gnucobol \
+  google-go-lang googletest gperf gyp help2man icecream indent intltool jq \
+  libgccjit lua luajit mercurial meson mold nasm ninja nv-codec-headers \
+  opencl-headers oprofile p2c parallel patchelf pmake poke python-pip \
+  python-setuptools python2 rcs re2c rinutils ruby rust rust-bindgen sassc \
+  scons slacktrack stb strace subversion swig tree-sitter universal-ctags \
+  vala valgrind yasm rubygem-asciidoctor \
+  kdevelop kdev-python umbrello
 
 add_section servers on "Servers, virtualization and databases" \
   qemu lxc php httpd netatalk kea dovecot postfix proftpd bind net-snmp ntp \
-  alpine nmap mariadb nut
+  alpine nmap mariadb nut apr apr-util serf
 
 add_section old-net on "Old network, mail and chat clients and daemons" \
   htdig fetchmail getmail procmail popa3d vsftpd uucp yptools mcabber elm \
@@ -147,6 +164,9 @@ add_section old-tools on "Old terminal editors and optical disc tools" \
   jed joe jove ksh93 sc sc-im dc3dd rdfind seejpeg cdrtools cdrdao \
   dvd+rw-tools cdparanoia normalize madplay linuxdoc-tools
 
+add_section hp-drivers on "HP printer drivers (only useful with an HP printer)" \
+  hplip
+
 add_section x-extra on "Unused X11 tools" \
   igt-gpu-tools compiz
 
@@ -154,19 +174,13 @@ add_section kernel-source on "Kernel source (only needed to build external kerne
   kernel-source
 
 # Optional sections: off unless requested with -a or -o NAME
-add_section dev-extra off "Build tools not needed for a kernel (cmake, autotools, meson, ...)" \
-  cmake Cython python-pip gdb re2c meson ninja autoconf-archive parallel \
-  autoconf libtool automake gettext-tools extra-cmake-modules stb strace \
-  help2man jq nv-codec-headers opencl-headers AMF-headers pmake \
-  gperf patchelf check intltool clinfo rinutils sassc slacktrack
-
 add_section input-methods off "Input methods and engines (needed to type CJK)" \
   ibus ibus-table m17n-lib fcitx5 fcitx5-configtool fcitx5-theme-breeze \
   skkdic libkkc-data anthy-unicode ibus-anthy libpinyin fcitx5-table-extra \
   libhangul ibus-libpinyin fcitx5-chinese-addons OpenCC libime
 
 add_section printing off "Printing (needed only if you own a printer)" \
-  hplip gutenprint cups cups-filters cups-browsed system-config-printer \
+  gutenprint cups cups-filters cups-browsed system-config-printer \
   print-manager a2ps enscript
 
 add_section misc off "Documentation tools, Node.js and other leaf packages" \
@@ -218,18 +232,61 @@ done < <(awk '
 pim_stays=0
 case "$WITHOUT" in *" pim "*) [ -n "${INSTALLED[akonadi]:-}" ] && pim_stays=1 ;; esac
 
-declare -A TODO TOTAL
+declare -A TODO TOTAL CAND INREM KEPT RHARD RSOFT
 ORDER=(); skipped=(); grand=0; count=0
+
+# Step 1: the installed packages each enabled section would remove
 for s in "${SECTIONS[@]}"; do
   if ! enabled "$s"; then
     [ "${DEFAULT[$s]}" = "off" ] && skipped+=("$s")
     continue
   fi
-  list=(); kb=0
+  list=()
   for p in ${PKGS[$s]}; do
     case "$PROTECTED" in *" $p "*) continue ;; esac
     [ "$p" = "mariadb" ] && [ "$pim_stays" -eq 1 ] && continue
     [ -n "${INSTALLED[$p]:-}" ] || continue
+    list+=("$p"); INREM[$p]=1
+  done
+  CAND[$s]="${list[*]}"
+done
+
+# Step 2: dependency check. A package stays if an installed package that is not
+# being removed links to it or runs a script with it. Keeping a package makes
+# its own dependencies stay too, so this repeats until nothing changes.
+if [ "$FORCE" -eq 0 ]; then
+  if [ ! -r "$DEPS" ]; then
+    echo "Error: the dependency map $DEPS was not found."
+    echo "Run this script from a clone of the repository, or use -f to skip the check."
+    exit 1
+  fi
+  while IFS=$'\t' read -r consumer dep kind; do
+    [ -n "${INSTALLED[$consumer]:-}" ] && [ -n "${INSTALLED[$dep]:-}" ] || continue
+    case "$IGNORE" in *" $consumer>$dep "*) continue ;; esac
+    if [ "$kind" = "hard" ]; then RHARD[$dep]+="$consumer "; else RSOFT[$dep]+="$consumer "; fi
+  done < <(grep -v '^#' "$DEPS")
+  changed=1
+  while [ "$changed" -eq 1 ]; do
+    changed=0
+    for p in "${!INREM[@]}"; do
+      for q in ${RHARD[$p]:-}; do
+        if [ -z "${INREM[$q]:-}" ]; then
+          unset "INREM[$p]"
+          KEPT[$p]=$q
+          changed=1
+          break
+        fi
+      done
+    done
+  done
+fi
+
+# Step 3: what is left of each section
+for s in "${SECTIONS[@]}"; do
+  [ -n "${CAND[$s]:-}" ] || continue
+  list=(); kb=0
+  for p in ${CAND[$s]}; do
+    [ -n "${INREM[$p]:-}" ] || continue
     list+=("$p"); kb=$((kb + ${SIZE[$p]:-0}))
   done
   [ "${#list[@]}" -eq 0 ] && continue
@@ -253,6 +310,38 @@ for s in "${ORDER[@]}"; do
   fi
 done
 printf '  %-16s %8d %7d MB\n' "TOTAL" "$count" "$((grand / 1024))"
+
+if [ "$FORCE" -eq 1 ]; then
+  echo
+  echo "  Dependency check skipped (-f)."
+elif [ "${#KEPT[@]}" -gt 0 ]; then
+  echo
+  echo "  Kept because an installed package needs them (${#KEPT[@]}):"
+  shown=0
+  for p in $(printf '%s\n' "${!KEPT[@]}" | sort); do
+    if [ "$VERBOSE" -eq 1 ] || [ "$shown" -lt 12 ]; then
+      echo "    $p (needed by ${KEPT[$p]})"
+    fi
+    shown=$((shown + 1))
+  done
+  [ "$VERBOSE" -eq 0 ] && [ "${#KEPT[@]}" -gt 12 ] && echo "    ... use -v to see all"
+fi
+
+if [ "$VERBOSE" -eq 1 ] && [ "$FORCE" -eq 0 ]; then
+  soft=()
+  for p in "${!INREM[@]}"; do
+    users=""
+    for q in ${RSOFT[$p]:-}; do
+      [ -z "${INREM[$q]:-}" ] && users+="$q "
+    done
+    [ -n "$users" ] && soft+=("$p: plugins of $users")
+  done
+  if [ "${#soft[@]}" -gt 0 ]; then
+    echo
+    echo "  Removing these only disables optional plugins of other packages:"
+    printf '    %s\n' "${soft[@]}" | sort
+  fi
+fi
 
 if [ "${#skipped[@]}" -gt 0 ]; then
   echo
