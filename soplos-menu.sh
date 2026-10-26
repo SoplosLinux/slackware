@@ -91,7 +91,7 @@ tr_add f_title "First steps" "Primeros pasos"
 tr_add f_text "Usual steps after installing Slackware" "Pasos habituales tras instalar Slackware"
 tr_add f1 "Boot into the graphical login (runlevel 4)" "Arrancar en el login gráfico (nivel 4)"
 tr_add f2 "Set a mirror and update the system" "Elegir un mirror y actualizar el sistema"
-tr_add f3 "Create a user with sudo" "Crear un usuario con sudo"
+tr_add f3 "Give sudo to an existing user (group, sudoers, PATH)" "Dar sudo a un usuario existente (grupo, sudoers, PATH)"
 tr_add f4 "Set the system language" "Establecer el idioma del sistema"
 tr_add f5 "Force a screen resolution for X11" "Forzar una resolución de pantalla en X11"
 tr_add f6 "Rename the user folders to Spanish" "Renombrar las carpetas de usuario al español"
@@ -269,7 +269,7 @@ menu_firststeps() {
     case "$c" in
       1) run scripts/setup.firststeps runlevel4 ;;
       2) confirm f2_confirm && run scripts/setup.firststeps updates ;;
-      3) run scripts/setup.firststeps user ;;
+      3) run scripts/setup.firststeps sudo ;;
       4) run scripts/setup.firststeps lang ;;
       5) run scripts/setup.firststeps resolution ;;
       6) run scripts/setup.firststeps userdirs ;;

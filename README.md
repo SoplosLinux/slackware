@@ -19,7 +19,7 @@ The menu has these entries; the first four open a submenu:
 | Entry | What it does |
 |---|---|
 | Clean Plasma | Preview or run the debloat, with or without the optional sections |
-| First steps | Runlevel 4, mirror and updates, user with sudo, language, screen resolution, Spanish user folders |
+| First steps | Runlevel 4, mirror and updates, sudo for the user the installer created, language, screen resolution, Spanish user folders |
 | Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
 | GRUB | Regenerate the menu now, or install the hook that does it on kernel updates (Slackware 16) |
 | Plymouth boot splash | Installer for Slackware 15 or 16, detected from `/etc/slackware-version` |

@@ -12,7 +12,7 @@
 # Usage: setup.firststeps ACTION
 #   runlevel4   boot into the graphical login (runlevel 4)
 #   updates     choose a mirror if none is set, then update slackpkg and upgrade
-#   user        create a user and give it sudo
+#   sudo        give sudo to an existing user (group, sudoers rule, PATH)
 #   lang        set the system language
 #   resolution  force a screen resolution for X11
 #   userdirs    rename the user folders (Desktop, Documents, ...) to Spanish
@@ -71,28 +71,51 @@ action_updates() {
   echo "Updated. install-new is not run on purpose: it would bring back the packages you removed."
 }
 
-action_user() {
-  local user sudoers=$ROOT/etc/sudoers rule
-  user=$(ask "New user name: ")
+# Gives sudo to a user that already exists (the one created by the installer):
+# the sudo group, the group rule in sudoers and sbin in the default PATH.
+action_sudo() {
+  local user default users sudoers=$ROOT/etc/sudoers drop=$ROOT/etc/sudoers.d/10-soplos-sudo
+  users=$(awk -F: '$3 >= 1000 && $3 < 60000 {print $1}' "$ROOT/etc/passwd" 2> /dev/null | tr '\n' ' ')
+  default=${users%% *}
+  [ -n "$users" ] && echo "Users on this system: $users"
+  user=$(ask "User to give sudo to [$default]: " "$default")
   [[ $user =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid user name."
-  if id "$user" > /dev/null 2>&1; then
-    echo "User $user already exists."
-  else
-    adduser "$user" || die "adduser failed."
-  fi
-  rule="$user ALL=(ALL:ALL) ALL"
+  grep -q "^$user:" "$ROOT/etc/passwd" || die "user $user does not exist. Create it first with adduser."
   [ -e "$sudoers" ] || die "$sudoers not found. Is sudo installed?"
+
+  # 1. The sudo group, and the user in it
+  if ! grep -q '^sudo:' "$ROOT/etc/group"; then
+    groupadd sudo || die "groupadd sudo failed."
+    echo "Created the group sudo."
+  fi
+  if grep -Eq "^sudo:[^:]*:[^:]*:(.*,)?$user(,.*)?\$" "$ROOT/etc/group"; then
+    echo "$user is already in the group sudo."
+  else
+    usermod -aG sudo "$user" || die "usermod failed."
+    echo "Added $user to the group sudo."
+  fi
+
+  # 2. The rule for the group
   if grep -Eq '^[#@]includedir[[:space:]]+/etc/sudoers.d' "$sudoers"; then
     mkdir -p "$ROOT/etc/sudoers.d"
-    echo "$rule" > "$ROOT/etc/sudoers.d/90-$user"
-    chmod 440 "$ROOT/etc/sudoers.d/90-$user"
-    visudo -cf "$ROOT/etc/sudoers.d/90-$user" > /dev/null || { rm -f "$ROOT/etc/sudoers.d/90-$user"; die "the sudo rule did not validate and was removed."; }
-  else
+    rm -f "$drop"
+    printf '%%sudo ALL=(ALL:ALL) ALL\nDefaults pwfeedback\n' > "$drop"
+    chmod 440 "$drop"
+    visudo -cf "$drop" > /dev/null || { rm -f "$drop"; die "the sudo rule did not validate and was removed."; }
+  elif ! grep -Eq '^%sudo[[:space:]]' "$sudoers"; then
     backup "$sudoers"
-    echo "$rule" >> "$sudoers"
+    printf '%%sudo ALL=(ALL:ALL) ALL\nDefaults pwfeedback\n' >> "$sudoers"
     visudo -cf "$sudoers" > /dev/null || die "sudoers is invalid now. Restore $sudoers.pre-soplos."
   fi
-  echo "User $user can use sudo."
+
+  # 3. sbin in the default PATH, so a normal user can find the system tools
+  local profile=$ROOT/etc/profile oldpath='PATH="/usr/local/bin:/usr/bin:/bin:/usr/games"'
+  if [ -e "$profile" ] && grep -qF "$oldpath" "$profile"; then
+    backup "$profile"
+    sed -i "s#^PATH=\"/usr/local/bin:/usr/bin:/bin:/usr/games\"#PATH=\"/usr/local/bin:/usr/bin:/bin:/usr/games:/sbin:/usr/sbin\"#" "$profile"
+    echo "Added /sbin and /usr/sbin to the default PATH."
+  fi
+  echo "$user can use sudo. Log out and in for the group to apply."
 }
 
 action_lang() {
@@ -168,7 +191,7 @@ action_userdirs() {
 case "${1:-}" in
   runlevel4)  action_runlevel4 ;;
   updates)    action_updates ;;
-  user)       action_user ;;
+  sudo)       action_sudo ;;
   lang)       action_lang ;;
   resolution) action_resolution ;;
   userdirs)   action_userdirs ;;
