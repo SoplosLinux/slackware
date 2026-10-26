@@ -48,7 +48,7 @@ done
 [ "$missing" -eq 0 ] && say "  none"
 
 say
-say "== 3. QML modules imported by Plasma, KWin and SDDM that are not installed"
+say "== 3. QML modules imported but not found (many are built into the program: not a fault)"
 modules=$(find $SCAN_DIRS \( -name '*.qml' -o -name '*.js' \) -type f 2> /dev/null \
   | xargs -r grep -hE '^[[:space:]]*import[[:space:]]+[A-Za-z]' 2> /dev/null \
   | sed -E 's/^[[:space:]]*import[[:space:]]+([A-Za-z0-9_.]+).*/\1/' | sort -u)
@@ -64,7 +64,7 @@ done
 if [ -z "$gone" ]; then
   say "  none"
 else
-  printf '%s' "$gone" | show 30
+  printf '%s' "$gone" | show 8
 fi
 say "  ($(echo "$modules" | wc -w) modules checked)"
 
@@ -100,7 +100,49 @@ for p in fcitx5 ibus-daemon; do
 done
 
 say
-say "== 6. Errors in the session logs"
+say "== 6. Files of installed packages that are missing from the disk"
+PKGLOGS=${PKGLOGS:-/var/log/packages}
+if command -v python3 > /dev/null 2>&1; then
+  python3 -I - "$PKGLOGS" "${FSROOT:-/}" << 'PY' | show 18
+import os, sys
+logs, root = sys.argv[1], sys.argv[2]
+bad = {}
+for name in sorted(os.listdir(logs)):
+    try:
+        lines = open(os.path.join(logs, name), errors="replace").read().split("\n")
+    except OSError:
+        continue
+    if "FILE LIST:" not in lines:
+        continue
+    miss = []
+    for l in lines[lines.index("FILE LIST:") + 1:]:
+        if not l or l.endswith("/") or l.startswith(("install/", "usr/doc/", "var/")) or l.endswith(".new"):
+            continue
+        if not os.path.lexists(os.path.join(root, l)):
+            miss.append(l)
+    if miss:
+        bad[name] = miss
+if not bad:
+    print("  none")
+for name, miss in sorted(bad.items(), key=lambda t: -len(t[1]))[:60]:
+    print(f"  {name}: {len(miss)} missing, e.g. {miss[0]}")
+PY
+else
+  say "  python3 not found"
+fi
+
+say
+say "== 7. Global shortcut and activity services"
+DBUS_DIR=${DBUS_DIR:-/usr/share/dbus-1/services}
+for f in $(ls "$DBUS_DIR" 2> /dev/null | grep -iE 'globalacc|activit'); do
+  say "  $f: $(grep -m1 '^Exec=' "$DBUS_DIR/$f" | cut -c1-70)"
+  say "      owned by: $(grep -l "usr/share/dbus-1/services/$f" "$PKGLOGS"/* 2> /dev/null | sed 's#.*/##' | tr '\n' ' ')"
+done
+find ${BINROOTS:-/usr/bin /usr/libexec /usr/lib64} -maxdepth 3 \( -name 'kglobalacceld*' -o -name 'kactivitymanagerd*' \) -type f 2> /dev/null | sed 's/^/  binary: /' | show 6
+[ -d "$DBUS_DIR" ] && [ -z "$(ls "$DBUS_DIR" 2> /dev/null | grep -iE 'globalacc|activit')" ] && say "  no D-Bus service file for them in $DBUS_DIR"
+
+say
+say "== 8. Errors in the session logs"
 for h in $HOMES; do
   for f in "$h"/.local/share/sddm/*.log "$h"/.xsession-errors; do
     [ -f "$f" ] || continue
