@@ -12,17 +12,24 @@
 #   wget https://raw.githubusercontent.com/SoplosLinux/slackware/main/soplos-menu.sh
 #   bash soplos-menu.sh
 #
-# What it downloads: the repository archive from GitHub, once, into
-# /tmp/soplos-slackware. Everything is fetched over HTTPS and nothing is
+# What it does the first time: it downloads the repository archive from GitHub
+# into /usr/local/share/soplos-slackware, creates the command soplos-menu in
+# /usr/local/bin and a menu entry in the application launcher. After that the
+# downloaded file is not needed any more: start it from the launcher or run
+# "soplos-menu" as root. Everything is fetched over HTTPS and nothing is
 # installed until you pick an option and confirm it. Read the scripts in the
 # repository before running them as root.
+#
+# To remove it all: soplos-menu --uninstall
 #
 # Environment (all optional):
 #   SOPLOS_LANG   menu language, en or es (default: en; change it from the menu)
 #   SOPLOS_REF    branch or tag to download (default: main)
 #   SOPLOS_URL    full URL of the archive, replaces the GitHub address
 #   SOPLOS_LOCAL  path of a local clone to use instead of downloading
-#   SOPLOS_WORK   download directory (default: /tmp/soplos-slackware)
+#   SOPLOS_WORK   download directory (default: /usr/local/share/soplos-slackware)
+#   SOPLOS_BIN    path of the command (default: /usr/local/bin/soplos-menu)
+#   SOPLOS_DESKTOP path of the menu entry (default: /usr/share/applications/soplos-slackware.desktop)
 #
 # The menu texts exist in English and Spanish. The scripts the menu launches
 # print their messages in English.
@@ -30,7 +37,9 @@
 OWNER_REPO=SoplosLinux/slackware
 REF=${SOPLOS_REF:-main}
 URL=${SOPLOS_URL:-https://github.com/$OWNER_REPO/archive/refs/heads/$REF.tar.gz}
-WORK=${SOPLOS_WORK:-/tmp/soplos-slackware}
+WORK=${SOPLOS_WORK:-/usr/local/share/soplos-slackware}
+BIN=${SOPLOS_BIN:-/usr/local/bin/soplos-menu}
+DESKTOP=${SOPLOS_DESKTOP:-/usr/share/applications/soplos-slackware.desktop}
 LOCAL=${SOPLOS_LOCAL:-}
 TTY=${SOPLOS_TTY:-/dev/tty}
 REPO=
@@ -167,10 +176,17 @@ fetch_repo() {
     REPO=$WORK/repo
     if [ "${1:-}" = "refresh" ] || [ ! -f "$REPO/scripts/setup.debloat" ]; then
       t downloading
+      # only ever delete a folder that is ours
+      case "$WORK" in
+        */soplos-slackware) ;;
+        *) die "refusing to delete $WORK: its name must end in /soplos-slackware" ;;
+      esac
       rm -rf "$WORK"
       mkdir -p "$REPO"
       download "$URL" "$WORK/repo.tar.gz" || die "$(t err_dl) $URL"
-      tar -xzf "$WORK/repo.tar.gz" -C "$REPO" --strip-components=1 || die "$(t err_unpack)"
+      # -m: keep the current time, the clock of a VM is often behind the archive
+      tar -xzmf "$WORK/repo.tar.gz" -C "$REPO" --strip-components=1 || die "$(t err_unpack)"
+      rm -f "$WORK/repo.tar.gz"
     fi
   fi
   [ -f "$REPO/scripts/setup.debloat" ] || die "$(t err_repo)"
@@ -328,8 +344,52 @@ run_plymouth() {
   run "$REL/scripts/setup.plymouth.installer"
 }
 
+# Creates the command and the menu entry that start the downloaded menu
+install_launcher() {
+  [ -n "$LOCAL" ] && return
+  mkdir -p "$(dirname "$BIN")" "$(dirname "$DESKTOP")"
+  printf '#!/bin/sh\nexec bash "%s/repo/soplos-menu.sh" "$@"\n' "$WORK" > "$BIN"
+  chmod 755 "$BIN"
+  cat > "$DESKTOP" << EOF
+[Desktop Entry]
+Type=Application
+Name=Soplos Slackware Tools
+Name[es]=Herramientas Soplos para Slackware
+Comment=Clean Plasma, first steps, Plymouth, Flatpak and more
+Comment[es]=Limpiar Plasma, primeros pasos, Plymouth, Flatpak y más
+Exec=su -c $BIN
+Icon=preferences-system
+Terminal=true
+Categories=System;Settings;
+EOF
+}
+
+# Removes the command, the menu entry and the downloaded copy
+uninstall() {
+  case "$WORK" in
+    */soplos-slackware) ;;
+    *) die "refusing to delete $WORK: its name must end in /soplos-slackware" ;;
+  esac
+  rm -f "$BIN" "$DESKTOP"
+  rm -rf "$WORK"
+  echo "Removed $BIN, $DESKTOP and $WORK"
+  exit 0
+}
+
+# Start again from the downloaded copy of this menu
+restart_from_repo() {
+  exec env SOPLOS_REEXEC=1 SOPLOS_WORK="$WORK" SOPLOS_LANG="$LC_MENU" bash "$REPO/soplos-menu.sh"
+}
+
 main() {
+  [ "${1:-}" = "--uninstall" ] && uninstall
   fetch_repo
+  # An old launcher, for example one saved in Downloads, runs the newest menu
+  if [ -z "$LOCAL" ] && [ -z "${SOPLOS_REEXEC:-}" ] && [ -f "$REPO/soplos-menu.sh" ] \
+    && ! cmp -s "$REPO/soplos-menu.sh" "$0"; then
+    restart_from_repo
+  fi
+  install_launcher
   REL=$(release)
   local c rel_text
   while true; do
@@ -350,7 +410,7 @@ main() {
         if [ "$LC_MENU" = "es" ]; then ${PAGER:-less} "$REPO/docs/plymouth-tutorial.es.txt"
         else ${PAGER:-less} "$REPO/docs/plymouth-tutorial.en.txt"; fi
         ;;
-      9) fetch_repo refresh; say refreshed ;;
+      9) fetch_repo refresh; say refreshed; [ -z "$LOCAL" ] && restart_from_repo ;;
       D|d) run scripts/setup.diagnose ;;
       L|l) pick_language ;;
       0|"") break ;;
@@ -363,4 +423,4 @@ main() {
 [ "$LC_MENU" = "es" ] || LC_MENU=en
 [ "$(id -u)" -eq 0 ] || die "$(t err_root)"
 export SOPLOS_LANG=$LC_MENU
-main
+main "$@"

@@ -10,9 +10,17 @@ Download one file and run it as root. It opens a menu and fetches from GitHub
 only what each option needs:
 
 ```sh
-wget https://raw.githubusercontent.com/SoplosLinux/slackware/main/soplos-menu.sh
+wget https://github.com/SoplosLinux/slackware/raw/main/soplos-menu.sh
 bash soplos-menu.sh
 ```
+
+The first run installs it for good: the scripts go to
+`/usr/local/share/soplos-slackware`, the command `soplos-menu` goes to
+`/usr/local/bin` and an entry called "Soplos Slackware Tools" appears in the
+application launcher (it asks for the root password in a terminal). The file you
+downloaded is not needed any more, and an old copy of it always starts the
+newest menu. Option 9 of the menu downloads the scripts again, and
+`soplos-menu --uninstall` removes all of it.
 
 The menu has these entries; the first four open a submenu:
 
