@@ -27,6 +27,9 @@ The menu has these entries; the first four open a submenu:
 | Kernel 6.8.9 | The build from the video (Slackware 15) |
 | Tutorial | The Plymouth tutorial, in your language |
 
+The menu starts in English. Press `L` (Change the language) to switch it to
+Spanish, and again to go back. The scripts it launches print in English.
+
 Nothing is installed until you choose an option and confirm it.
 
 Flatpak and Discover come from AlienBOB's ready-made packages
