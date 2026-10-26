@@ -135,18 +135,28 @@ action_sudo() {
     echo "Added $user to the group sudo."
   fi
 
-  # 2. The rule for the group
-  if grep -Eq '^[#@]includedir[[:space:]]+/etc/sudoers.d' "$sudoers"; then
-    mkdir -p "$ROOT/etc/sudoers.d"
-    rm -f "$drop"
-    printf '%%sudo ALL=(ALL:ALL) ALL\nDefaults pwfeedback\n' > "$drop"
-    chmod 440 "$drop"
-    visudo -cf "$drop" > /dev/null || { rm -f "$drop"; die "the sudo rule did not validate and was removed."; }
-  elif ! grep -Eq '^%sudo[[:space:]]' "$sudoers"; then
-    backup "$sudoers"
-    printf '%%sudo ALL=(ALL:ALL) ALL\nDefaults pwfeedback\n' >> "$sudoers"
-    visudo -cf "$sudoers" > /dev/null || die "sudoers is invalid now. Restore $sudoers.pre-soplos."
+  # 2. The rule for the group, written into /etc/sudoers itself. The copy is
+  # checked with visudo first, so a mistake can never lock sudo out.
+  local tmp
+  rm -f "$drop"
+  tmp=$(mktemp) || die "mktemp failed."
+  cp "$sudoers" "$tmp"
+  if ! grep -Eq '^%sudo[[:space:]]' "$tmp"; then
+    printf '\n## Added by Soplos: members of the group sudo\n%%sudo ALL=(ALL:ALL) ALL\n' >> "$tmp"
   fi
+  if ! grep -Eq '^Defaults[[:space:]].*pwfeedback' "$tmp"; then
+    printf 'Defaults env_reset,pwfeedback\n' >> "$tmp"
+  fi
+  if cmp -s "$tmp" "$sudoers"; then
+    echo "/etc/sudoers already has the rule for the group sudo."
+  else
+    visudo -cf "$tmp" > /dev/null || { rm -f "$tmp"; die "the new sudoers did not validate. /etc/sudoers was not changed."; }
+    backup "$sudoers"
+    cat "$tmp" > "$sudoers"
+    chmod 440 "$sudoers"
+    echo "Wrote the rule for the group sudo into /etc/sudoers."
+  fi
+  rm -f "$tmp"
 
   # 3. sbin in the default PATH, so a normal user can find the system tools
   local profile=$ROOT/etc/profile oldpath='PATH="/usr/local/bin:/usr/bin:/bin:/usr/games"'
