@@ -95,6 +95,7 @@ tr_add f3 "Give sudo to an existing user (group, sudoers, PATH)" "Dar sudo a un 
 tr_add f4 "Set the system language" "Establecer el idioma del sistema"
 tr_add f5 "Force a screen resolution for X11" "Forzar una resolución de pantalla en X11"
 tr_add f6 "Rename the user folders to Spanish" "Renombrar las carpetas de usuario al español"
+tr_add f7 "Reset keyboard shortcuts (if Super or Alt+Tab do nothing)" "Restablecer los atajos de teclado (si Super o Alt+Tab no hacen nada)"
 tr_add f2_confirm "Update the system with slackpkg?\n\nIt runs update gpg, update and upgrade-all, and may download a lot." "¿Actualizar el sistema con slackpkg?\n\nEjecuta update gpg, update y upgrade-all, y puede descargar mucho."
 
 tr_add s_title "Install software" "Instalar software"
@@ -264,7 +265,7 @@ menu_firststeps() {
   local c
   while true; do
     c=$(choose "$(t f_title)" "$(t f_text)" \
-      1 "$(t f1)" 2 "$(t f2)" 3 "$(t f3)" 4 "$(t f4)" 5 "$(t f5)" 6 "$(t f6)" 0 "$(t back)")
+      1 "$(t f1)" 2 "$(t f2)" 3 "$(t f3)" 4 "$(t f4)" 5 "$(t f5)" 6 "$(t f6)" 7 "$(t f7)" 0 "$(t back)")
     clear
     case "$c" in
       1) run scripts/setup.firststeps runlevel4 ;;
@@ -273,6 +274,7 @@ menu_firststeps() {
       4) run scripts/setup.firststeps lang ;;
       5) run scripts/setup.firststeps resolution ;;
       6) run scripts/setup.firststeps userdirs ;;
+      7) run scripts/setup.firststeps shortcuts ;;
       0|"") return ;;
     esac
   done

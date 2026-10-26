@@ -67,6 +67,20 @@ for h in $HOMES; do
 done
 
 say
+say "== 1d. Keyboard shortcuts cleared in the user configuration"
+for h in $HOMES; do
+  f="$h/.config/kglobalshortcutsrc"
+  if [ -f "$f" ]; then
+    n=$(grep -c '=none,' "$f")
+    t=$(grep -cE '^[^#[][^=]*=' "$f")
+    say "  $f: $n of $t shortcuts are unassigned"
+    [ "$n" -gt 15 ] && say "      LIKELY CLEARED. Menu: First steps, Reset keyboard shortcuts."
+  else
+    say "  $h: no kglobalshortcutsrc"
+  fi
+done
+
+say
 say "== 2. Programs with a missing library"
 missing=0
 for b in $BINARIES; do

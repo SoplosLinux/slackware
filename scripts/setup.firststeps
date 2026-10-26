@@ -15,6 +15,7 @@
 #   sudo        give sudo to an existing user (group, sudoers rule, PATH)
 #   lang        set the system language
 #   resolution  force a screen resolution for X11
+#   shortcuts   reset the keyboard shortcuts of a user (if Super or Alt+Tab do nothing)
 #   userdirs    rename the user folders (Desktop, Documents, ...) to Spanish
 
 set -u
@@ -180,6 +181,30 @@ LC_ALL=es_ES.UTF-8 xdg-user-dirs-update --force
 EOF
 }
 
+# Moves the keyboard shortcut and KWin settings of a user aside, so that Plasma
+# writes the defaults at the next login. Found by hand on a real system where
+# Super and Alt+Tab did nothing: kglobalshortcutsrc had every global shortcut
+# set to none. The files are kept with a time stamp, nothing is deleted.
+action_shortcuts() {
+  local user home stamp f moved=0
+  user=$(ask "User whose shortcuts to reset [$(awk -F: '$3 >= 1000 && $3 < 60000 {print $1; exit}' "$ROOT/etc/passwd")]: " \
+    "$(awk -F: '$3 >= 1000 && $3 < 60000 {print $1; exit}' "$ROOT/etc/passwd")")
+  grep -q "^$user:" "$ROOT/etc/passwd" || die "user $user does not exist."
+  home=$(awk -F: -v u="$user" '$1 == u {print $6}' "$ROOT/etc/passwd")
+  [ -d "$ROOT$home/.config" ] || die "$home/.config does not exist."
+  stamp=$(date +%Y%m%d-%H%M%S)
+  for f in kglobalshortcutsrc kwinrc; do
+    if [ -e "$ROOT$home/.config/$f" ]; then
+      mv "$ROOT$home/.config/$f" "$ROOT$home/.config/$f.$stamp.old"
+      echo "Moved $f aside as $f.$stamp.old"
+      moved=1
+    fi
+  done
+  [ "$moved" -eq 1 ] || { echo "Nothing to move: no shortcut or KWin settings found."; return; }
+  echo "Log out of Plasma and log in again as $user. Window effects, borders and"
+  echo "tiling layouts go back to the defaults; the old files are still there."
+}
+
 action_userdirs() {
   local user
   user=$(ask "User to rename the folders of: ")
@@ -194,6 +219,7 @@ case "${1:-}" in
   sudo)       action_sudo ;;
   lang)       action_lang ;;
   resolution) action_resolution ;;
+  shortcuts)  action_shortcuts ;;
   userdirs)   action_userdirs ;;
   *) sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

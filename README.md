@@ -19,7 +19,7 @@ The menu has these entries; the first four open a submenu:
 | Entry | What it does |
 |---|---|
 | Clean Plasma | Preview or run the debloat, with or without the optional sections |
-| First steps | Runlevel 4, mirror and updates, sudo for the user the installer created, language, screen resolution, Spanish user folders |
+| First steps | Runlevel 4, mirror and updates, sudo for the user the installer created, language, screen resolution, Spanish user folders, reset of the keyboard shortcuts |
 | Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
 | GRUB | Regenerate the menu now, or install the hook that does it on kernel updates (Slackware 16) |
 | Plymouth boot splash | Installer for Slackware 15 or 16, detected from `/etc/slackware-version` |
@@ -71,6 +71,12 @@ working), and hides the menu entries of demos and tools that live inside
 libraries that cannot be removed (Qt Designer and Assistant, GTK Demo, Vulkan
 Caps Viewer, Avahi browsers...). An upgrade of the package that owns an entry
 puts it back; run the script again.
+
+Run it, then log out of Plasma and back in. If Super or Alt+Tab do nothing
+afterwards, use First steps, Reset keyboard shortcuts in the menu. This
+happened once on a real system after the debloat ran inside a live Plasma
+session: `kglobalshortcutsrc` had almost every shortcut set to `none`, and
+moving it and `kwinrc` aside fixed it. The cause is not proven.
 
 Everything it removes is written to `/var/log/setup.debloat.log`, and it can be
 brought back by section: `setup.debloat -u qt5` (or `-u all`, add `-n` to
