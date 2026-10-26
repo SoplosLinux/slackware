@@ -74,7 +74,9 @@ tr_add unknown_opt "Unknown option:" "Opción desconocida:"
 
 tr_add m_text "Slackware" "Slackware"
 tr_add m1 "Clean Plasma: remove what is not needed" "Limpiar Plasma: quitar lo que no hace falta"
-tr_add m2 "First steps: runlevel, updates, user, language" "Primeros pasos: nivel de arranque, actualizar, usuario, idioma"
+tr_add m2 "First steps: runlevel, language, resolution, shortcuts" "Primeros pasos: nivel de arranque, idioma, resolución, atajos"
+tr_add mP "Packages (slackpkg): mirror, update, upgrade, install-new" "Paquetes (slackpkg): mirror, update, upgrade, install-new"
+tr_add mU "Users: list, create, sudo, delete" "Usuarios: listar, crear, sudo, borrar"
 tr_add m3 "Install software: sbopkg, Plymouth, VMware tools, Flatpak, Discover" "Instalar software: sbopkg, Plymouth, VMware tools, Flatpak, Discover"
 tr_add m4 "Plymouth boot splash" "Splash de arranque Plymouth"
 tr_add m5 "GRUB menu and kernel-update hook" "Menú de GRUB y hook de actualización del kernel"
@@ -99,13 +101,30 @@ tr_add c6_ask "Section to bring back (names below, or all): " "Sección que recu
 tr_add f_title "First steps" "Primeros pasos"
 tr_add f_text "Usual steps after installing Slackware" "Pasos habituales tras instalar Slackware"
 tr_add f1 "Boot into the graphical login (runlevel 4)" "Arrancar en el login gráfico (nivel 4)"
-tr_add f2 "Set a mirror and update the system" "Elegir un mirror y actualizar el sistema"
-tr_add f3 "Give sudo to an existing user (group, sudoers, PATH)" "Dar sudo a un usuario existente (grupo, sudoers, PATH)"
 tr_add f4 "Set the system language" "Establecer el idioma del sistema"
 tr_add f5 "Force a screen resolution for X11" "Forzar una resolución de pantalla en X11"
 tr_add f6 "Rename the user folders to Spanish" "Renombrar las carpetas de usuario al español"
 tr_add f7 "Reset keyboard shortcuts (if Super or Alt+Tab do nothing)" "Restablecer los atajos de teclado (si Super o Alt+Tab no hacen nada)"
-tr_add f2_confirm "Update the system with slackpkg?\n\nIt runs update gpg, update and upgrade-all, and may download a lot." "¿Actualizar el sistema con slackpkg?\n\nEjecuta update gpg, update y upgrade-all, y puede descargar mucho."
+tr_add p_title "Packages (slackpkg)" "Paquetes (slackpkg)"
+tr_add p_text "Each step is separate. The usual order is 1, 2, 3, 4." "Cada paso es independiente. El orden habitual es 1, 2, 3, 4."
+tr_add p1 "Choose the mirror (changes nothing else)" "Elegir el mirror (no cambia nada más)"
+tr_add p2 "Update: refresh the package lists (upgrades nothing)" "Update: actualizar las listas de paquetes (no actualiza nada)"
+tr_add p3 "Upgrade: upgrade all installed packages (slow)" "Upgrade: actualizar todos los paquetes instalados (lento)"
+tr_add p4 "Install-new: install packages added to Slackware" "Install-new: instalar los paquetes nuevos de Slackware"
+tr_add p5 "Show the mirror in use" "Mostrar el mirror en uso"
+tr_add p3_confirm "Upgrade every installed package with slackpkg?\n\nThis is the slow one: it can download several GB and take hours. It does not bring back packages you removed." "¿Actualizar todos los paquetes instalados con slackpkg?\n\nEs la parte lenta: puede descargar varios GB y tardar horas. No recupera los paquetes que hayas quitado."
+tr_add p4_confirm "Install the packages added to Slackware since the last update?\n\nPackages removed by the debloat can come back if Slackware lists them as new. Preview with the Clean Plasma option afterwards." "¿Instalar los paquetes añadidos a Slackware desde la última actualización?\n\nLos paquetes que quitó el debloat pueden volver si Slackware los marca como nuevos. Después puedes volver a pasar Limpiar Plasma."
+tr_add u_title "Users" "Usuarios"
+tr_add u_text "Manage the users of this system" "Gestionar los usuarios de este sistema"
+tr_add u1 "List the users" "Listar los usuarios"
+tr_add u2 "Create a user" "Crear un usuario"
+tr_add u3 "Give sudo to a user (group, sudoers, PATH)" "Dar sudo a un usuario (grupo, sudoers, PATH)"
+tr_add u4 "Take sudo from a user" "Quitar el sudo a un usuario"
+tr_add u5 "Delete a user" "Borrar un usuario"
+tr_add u5_confirm "Delete a user?\n\nYou will be asked which one and to type the name again. root, system users, a logged-in user and the only regular user are refused. The home folder is deleted only if you say so." "¿Borrar un usuario?\n\nSe te preguntará cuál y tendrás que escribir el nombre otra vez. Se rechaza root, los usuarios del sistema, uno con sesión abierta y el único usuario normal. La carpeta personal solo se borra si lo dices."
+tr_add mir_title "Slackpkg mirror" "Mirror de slackpkg"
+tr_add mir_text "Choose the mirror. Then run Update (option 2) to read its package lists." "Elige el mirror. Después ejecuta Update (opción 2) para leer sus listas de paquetes."
+tr_add mir_keep "Keep the mirror already set" "Mantener el mirror que ya hay"
 
 tr_add s_title "Install software" "Instalar software"
 tr_add s_text "Things Slackware does not ship" "Lo que Slackware no incluye"
@@ -277,20 +296,78 @@ menu_clean() {
   done
 }
 
+# Asks which slackpkg mirror to use and sets it
+choose_mirror() {
+  local m base
+  m=$(choose "$(t mir_title)" "$(t mir_text)" \
+    1 "Official (mirrors.slackware.com)" \
+    2 "United Kingdom (slackware.uk)" \
+    3 "Germany (ftp.gwdg.de)" \
+    4 "Denmark (mirrors.dotsrc.org)" \
+    5 "United States (ftp.osuosl.org)" \
+    6 "Netherlands (slackware.nl)" \
+    7 "$(t mir_keep)" \
+    0 "$(t back)")
+  clear
+  case "$m" in
+    1) base=https://mirrors.slackware.com/slackware ;;
+    2) base=https://slackware.uk/slackware ;;
+    3) base=https://ftp.gwdg.de/pub/linux/slackware ;;
+    4) base=https://mirrors.dotsrc.org/slackware ;;
+    5) base=https://ftp.osuosl.org/pub/slackware ;;
+    6) base=https://slackware.nl/slackware ;;
+    7) base= ;;
+    *) return ;;
+  esac
+  run scripts/setup.firststeps mirror $base
+}
+
 menu_firststeps() {
   local c
   while true; do
     c=$(choose "$(t f_title)" "$(t f_text)" \
-      1 "$(t f1)" 2 "$(t f2)" 3 "$(t f3)" 4 "$(t f4)" 5 "$(t f5)" 6 "$(t f6)" 7 "$(t f7)" 0 "$(t back)")
+      1 "$(t f1)" 2 "$(t f4)" 3 "$(t f5)" 4 "$(t f6)" 5 "$(t f7)" 0 "$(t back)")
     clear
     case "$c" in
       1) run scripts/setup.firststeps runlevel4 ;;
-      2) confirm f2_confirm && run scripts/setup.firststeps updates ;;
+      2) run scripts/setup.firststeps lang ;;
+      3) run scripts/setup.firststeps resolution ;;
+      4) run scripts/setup.firststeps userdirs ;;
+      5) run scripts/setup.firststeps shortcuts ;;
+      0|"") return ;;
+    esac
+  done
+}
+
+menu_packages() {
+  local c
+  while true; do
+    c=$(choose "$(t p_title)" "$(t p_text)" \
+      1 "$(t p1)" 2 "$(t p2)" 3 "$(t p3)" 4 "$(t p4)" 5 "$(t p5)" 0 "$(t back)")
+    clear
+    case "$c" in
+      1) choose_mirror ;;
+      2) run scripts/setup.firststeps update ;;
+      3) confirm p3_confirm && run scripts/setup.firststeps upgrade ;;
+      4) confirm p4_confirm && run scripts/setup.firststeps installnew ;;
+      5) run scripts/setup.firststeps mirror ;;
+      0|"") return ;;
+    esac
+  done
+}
+
+menu_users() {
+  local c
+  while true; do
+    c=$(choose "$(t u_title)" "$(t u_text)" \
+      1 "$(t u1)" 2 "$(t u2)" 3 "$(t u3)" 4 "$(t u4)" 5 "$(t u5)" 0 "$(t back)")
+    clear
+    case "$c" in
+      1) run scripts/setup.firststeps users ;;
+      2) run scripts/setup.firststeps adduser ;;
       3) run scripts/setup.firststeps sudo ;;
-      4) run scripts/setup.firststeps lang ;;
-      5) run scripts/setup.firststeps resolution ;;
-      6) run scripts/setup.firststeps userdirs ;;
-      7) run scripts/setup.firststeps shortcuts ;;
+      4) run scripts/setup.firststeps unsudo ;;
+      5) confirm u5_confirm && run scripts/setup.firststeps deluser ;;
       0|"") return ;;
     esac
   done
@@ -417,7 +494,7 @@ main() {
     rel_text="$(t m_text) ${REL:-$(t unknown)}"
     c=$(choose "Soplos Linux" "$rel_text" \
       1 "$(t m1)" 2 "$(t m2)" 3 "$(t m3)" 4 "$(t m4)" 5 "$(t m5)" 6 "$(t m6)" \
-      7 "$(t m7)" 8 "$(t m8)" 9 "$(t m9)" D "$(t mD)" L "$(t mL)" 0 "$(t mq)")
+      7 "$(t m7)" 8 "$(t m8)" 9 "$(t m9)" P "$(t mP)" U "$(t mU)" D "$(t mD)" L "$(t mL)" 0 "$(t mq)")
     clear
     case "$c" in
       1) menu_clean ;;
@@ -432,6 +509,8 @@ main() {
         else ${PAGER:-less} "$REPO/docs/plymouth-tutorial.en.txt"; fi
         ;;
       9) fetch_repo refresh; say refreshed; [ -z "$LOCAL" ] && restart_from_repo ;;
+      P|p) menu_packages ;;
+      U|u) menu_users ;;
       D|d) run scripts/setup.diagnose ;;
       L|l) pick_language ;;
       0|"") break ;;

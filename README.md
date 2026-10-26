@@ -22,12 +22,14 @@ downloaded is not needed any more, and an old copy of it always starts the
 newest menu. Option 9 of the menu downloads the scripts again, and
 `soplos-menu --uninstall` removes all of it.
 
-The menu has these entries; the first four open a submenu:
+The menu has these entries; the ones with a list of steps open a submenu (`P` Packages, `U` Users):
 
 | Entry | What it does |
 |---|---|
 | Clean Plasma | Preview or run the debloat, with or without the optional sections |
-| First steps | Runlevel 4, mirror and updates, sudo for the user the installer created, language, screen resolution, Spanish user folders, reset of the keyboard shortcuts |
+| First steps | Runlevel 4, language, screen resolution, Spanish user folders, reset of the keyboard shortcuts |
+| Packages (slackpkg) | Each step on its own: choose the mirror, update (lists only), upgrade-all, install-new |
+| Users | List, create, give or take sudo, delete a user (refuses root, system users, logged-in users and the only regular user) |
 | Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
 | GRUB | Regenerate the menu now, or install the hook that does it on kernel updates (Slackware 16) |
 | Plymouth boot splash | Installer for Slackware 15 or 16, detected from `/etc/slackware-version` |

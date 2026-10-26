@@ -11,8 +11,15 @@
 #
 # Usage: setup.firststeps ACTION
 #   runlevel4   boot into the graphical login (runlevel 4)
-#   updates     choose a mirror if none is set, then update slackpkg and upgrade
-#   sudo        give sudo to an existing user (group, sudoers rule, PATH)
+#   mirror [BASE]  set the slackpkg mirror (no BASE: show the current one)
+#   update         refresh the package lists, upgrade nothing
+#   upgrade        upgrade all installed packages with slackpkg (slow)
+#   installnew     install the packages added since the last update
+#   users          list the regular users
+#   adduser        create a user
+#   sudo           give sudo to an existing user (group, sudoers rule, PATH)
+#   unsudo         take sudo from a user
+#   deluser        delete a user
 #   lang        set the system language
 #   resolution  force a screen resolution for X11
 #   shortcuts   reset the keyboard shortcuts of a user (if Super or Alt+Tab do nothing)
@@ -54,22 +61,54 @@ action_runlevel4() {
   echo "Default runlevel set to 4. It takes effect on the next boot."
 }
 
-action_updates() {
-  local mirrors=$ROOT/etc/slackpkg/mirrors url
+# Sets the slackpkg mirror. BASE is a mirror address without the tree, for
+# example https://slackware.uk/slackware ; with no BASE the current one is shown.
+action_mirror() {
+  local mirrors=$ROOT/etc/slackpkg/mirrors base=${1:-} url tree
   [ -e "$mirrors" ] || die "$mirrors not found. Is slackpkg installed?"
-  if ! grep -q '^[^#[:space:]]' "$mirrors"; then
-    case "$(release)" in
-      15) url=https://mirrors.slackware.com/slackware/slackware64-15.0/ ;;
-      *)  url=https://mirrors.slackware.com/slackware/slackware64-current/ ;;
-    esac
-    backup "$mirrors"
-    echo "$url" >> "$mirrors"
-    echo "No mirror was set, using $url"
+  case "$(release)" in
+    15) tree=slackware64-15.0 ;;
+    *)  tree=slackware64-current ;;
+  esac
+  if [ -z "$base" ]; then
+    if grep -q '^[^#[:space:]]' "$mirrors"; then
+      echo "The mirror in use is: $(grep -m1 '^[^#[:space:]]' "$mirrors")"
+    else
+      echo "No mirror is set."
+    fi
+    return
   fi
+  [[ $base =~ ^https?://[A-Za-z0-9._/-]+$ ]] || die "invalid mirror address: $base"
+  base=${base%/}
+  case "$base" in
+    *slackware64-*) url=$base/ ;;
+    *)              url=$base/$tree/ ;;
+  esac
+  backup "$mirrors"
+  sed -i 's/^\([^#[:space:]]\)/#\1/' "$mirrors"
+  echo "$url" >> "$mirrors"
+  echo "Mirror set to $url"
+}
+
+# Refreshes the package lists. Downloads a few MB, upgrades nothing.
+action_update() {
+  grep -q '^[^#[:space:]]' "$ROOT/etc/slackpkg/mirrors" 2> /dev/null || die "no mirror is set. Choose one first."
   slackpkg -batch=on -default_answer=y update gpg || die "slackpkg update gpg failed."
   slackpkg -batch=on -default_answer=y update || die "slackpkg update failed."
+  echo "Package lists refreshed. Nothing was upgraded."
+}
+
+# Upgrades every installed package. This is the slow one.
+action_upgrade() {
   slackpkg -batch=on -default_answer=y upgrade-all
-  echo "Updated. install-new is not run on purpose: it would bring back the packages you removed."
+  echo "Done."
+}
+
+# Installs the packages added to Slackware since the last update. Packages you
+# removed on purpose (the debloat) can come back if they are listed as new.
+action_installnew() {
+  slackpkg -batch=on -default_answer=y install-new
+  echo "Done."
 }
 
 # Gives sudo to a user that already exists (the one created by the installer):
@@ -181,6 +220,69 @@ LC_ALL=es_ES.UTF-8 xdg-user-dirs-update --force
 EOF
 }
 
+# Regular users: UID from 1000 up, not the overflow user
+regular_users() {
+  awk -F: '$3 >= 1000 && $3 < 60000 {print $1}' "$ROOT/etc/passwd" 2> /dev/null
+}
+
+action_users() {
+  local u uid home flag
+  echo "Regular users:"
+  while IFS=: read -r u _ uid _ _ home _; do
+    [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
+    flag=""
+    grep -Eq "^sudo:[^:]*:[^:]*:(.*,)?$u(,.*)?\$" "$ROOT/etc/group" 2> /dev/null && flag="$flag sudo"
+    pgrep -u "$u" > /dev/null 2>&1 && flag="$flag logged-in"
+    printf '  %-16s uid %-6s %-24s%s\n' "$u" "$uid" "$home" "$flag"
+  done < "$ROOT/etc/passwd"
+}
+
+action_adduser() {
+  local user
+  user=$(ask "New user name: ")
+  [[ $user =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid user name."
+  grep -q "^$user:" "$ROOT/etc/passwd" && die "user $user already exists."
+  adduser "$user" || die "adduser failed."
+  echo "User $user created. Use the sudo option if it needs administrator rights."
+}
+
+action_unsudo() {
+  local user
+  echo "Users: $(regular_users | tr '\n' ' ')"
+  user=$(ask "User to take sudo from: ")
+  grep -q "^$user:" "$ROOT/etc/passwd" || die "user $user does not exist."
+  if ! grep -Eq "^sudo:[^:]*:[^:]*:(.*,)?$user(,.*)?\$" "$ROOT/etc/group"; then
+    echo "$user is not in the group sudo. Nothing to do."
+    return
+  fi
+  gpasswd -d "$user" sudo || die "gpasswd failed."
+  echo "$user no longer has sudo. It applies at the next login."
+}
+
+# Deletes a regular user. It refuses root, system users, a user that is logged
+# in and the only regular user, and asks to type the name again.
+action_deluser() {
+  local user again ans home n
+  echo "Users: $(regular_users | tr '\n' ' ')"
+  user=$(ask "User to delete: ")
+  [[ $user =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid user name."
+  grep -q "^$user:" "$ROOT/etc/passwd" || die "user $user does not exist."
+  regular_users | grep -qx "$user" || die "$user is root or a system user. It will not be deleted."
+  n=$(regular_users | wc -l)
+  [ "$n" -gt 1 ] || die "$user is the only regular user. Create another one first."
+  if pgrep -u "$user" > /dev/null 2>&1; then
+    die "$user is logged in. Log that user out first."
+  fi
+  home=$(awk -F: -v u="$user" '$1 == u {print $6}' "$ROOT/etc/passwd")
+  again=$(ask "Type the name again to confirm: ")
+  [ "$again" = "$user" ] || die "the names do not match. Nothing was deleted."
+  ans=$(ask "Also delete $home and everything in it? [y/N] ")
+  case "$ans" in
+    y|Y|s|S) userdel -r "$user" || die "userdel failed." ; echo "User $user and $home deleted." ;;
+    *)       userdel "$user"    || die "userdel failed." ; echo "User $user deleted. $home was kept." ;;
+  esac
+}
+
 # Moves the keyboard shortcut and KWin settings of a user aside, so that Plasma
 # writes the defaults at the next login. Found by hand on a real system where
 # Super and Alt+Tab did nothing: kglobalshortcutsrc had every global shortcut
@@ -215,7 +317,14 @@ action_userdirs() {
 
 case "${1:-}" in
   runlevel4)  action_runlevel4 ;;
-  updates)    action_updates ;;
+  mirror)     action_mirror "${2:-}" ;;
+  update)     action_update ;;
+  upgrade)    action_upgrade ;;
+  installnew) action_installnew ;;
+  users)      action_users ;;
+  adduser)    action_adduser ;;
+  unsudo)     action_unsudo ;;
+  deluser)    action_deluser ;;
   sudo)       action_sudo ;;
   lang)       action_lang ;;
   resolution) action_resolution ;;
