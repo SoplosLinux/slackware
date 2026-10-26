@@ -65,6 +65,13 @@ default; see `./scripts/setup.debloat -l`. The development section removes
 every package of the `d` series except the basic toolchain (gcc, g++, binutils,
 make, bison, flex, m4, perl, python3, git, kernel headers, llvm, libtool).
 
+It also removes Qt5 and the KDE 5 frameworks, which Plasma 6 does not use
+(about 600 MB; only `pinentry-qt5`, `simplescreenrecorder` and a few demos stop
+working), and hides the menu entries of demos and tools that live inside
+libraries that cannot be removed (Qt Designer and Assistant, GTK Demo, Vulkan
+Caps Viewer, Avahi browsers...). An upgrade of the package that owns an entry
+puts it back; run the script again.
+
 Slackware does not track dependencies, so the script does it itself. It reads
 `data/deps.tsv` and keeps any package that an installed package that stays
 still needs: for example `guile` because `make` links to it, or `gcc-gfortran`

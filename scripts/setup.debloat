@@ -54,7 +54,8 @@ PROTECTED=" llvm mesa glibc glibc-solibs python3 perl gcc gcc-g++ make binutils
 IGNORE=" gcc>gcc-go gettext>gcc-gm2 "
 
 SECTIONS=()
-declare -A DEFAULT DESC PKGS
+declare -A DEFAULT DESC PKGS HIDE
+APPS=${APPS:-/usr/share/applications}
 
 # add_section NAME on|off "description" package...
 add_section() {
@@ -65,6 +66,34 @@ add_section() {
   DESC[$name]=$desc
   PKGS[$name]="$*"
 }
+
+# add_hide NAME on|off "description" file.desktop...
+# A section that removes menu entries instead of packages, for the tools and
+# demos that ship inside libraries that cannot be removed (qt5, gtk4, avahi...).
+# Upgrading the package that owns an entry puts it back; run the script again.
+add_hide() {
+  add_section "$@"
+  HIDE[$1]=1
+}
+
+# add_legacy NAME on|off "description" package...
+# A section whose packages the dependency check lets go even though the
+# packages in TOLERATED link to them, see the note at QT5_TOLERATED.
+declare -A LEGACY LEG
+add_legacy() {
+  add_section "$@"
+  LEGACY[$1]=1
+}
+
+# Plasma 6 does not use Qt5 or the KDE 5 frameworks. These packages still ship
+# a Qt5 version of a library next to the Qt6 one, or a Qt5 demo, and the map
+# sees that as a dependency. Checked against the real packages: losing the Qt5
+# part only stops these programs, none of them used by Plasma 6:
+#   pinentry-qt5 (the default pinentry-qt keeps working), simplescreenrecorder,
+#   oxygen-demo5, the Qt5 input method wrappers of fcitx5-qt, and okteta.
+# Any other package that starts needing Qt5 in a future release is not on this
+# list, so the check keeps Qt5 and says why.
+QT5_TOLERATED=" avahi fcitx5-qt futuresql libdbusmenu-qt libportal okteta oxygen phonon pinentry polkit-qt-1 poppler qca ssr "
 
 while getopts "nvyao:x:flh" opt; do
   case "$opt" in
@@ -124,7 +153,7 @@ add_section kde-extra on "Other KDE applications and developer tools" \
   kde-dev-utils poxml massif-visualizer alligator qrca francis \
   kdesdk-thumbnailers plasma-sdk kirigami-gallery ksystemlog kolourpaint \
   plasma-bigscreen khealthcertificate kosmindoormap kcolorchooser \
-  keditbookmarks accessibility-inspector
+  keditbookmarks accessibility-inspector skanpage
 
 # Every package of the Slackware "d" series except the basic toolchain that is
 # enough to build a kernel: gcc gcc-g++ binutils make bison flex m4 perl
@@ -141,8 +170,23 @@ add_section dev on "Development tools beyond a basic C and C++ toolchain" \
   opencl-headers oprofile p2c parallel patchelf pmake poke python-pip \
   python-setuptools python2 rcs re2c rinutils ruby rust rust-bindgen sassc \
   scons slacktrack stb strace subversion swig tree-sitter universal-ctags \
-  vala valgrind yasm rubygem-asciidoctor \
+  vala valgrind yasm rubygem-asciidoctor glade \
   kdevelop kdev-python umbrello
+
+add_legacy qt5 on "Qt5 and the KDE 5 frameworks (Plasma 6 does not use them)" \
+  qt5 PyQt5 PyQt5_sip attica5 frameworkintegration5 kactivities-stats5 \
+  kactivities5 karchive5 kauth5 kbookmarks5 kcalendarcore5 kcmutils5 \
+  kcodecs5 kcompletion5 kconfig5 kconfigwidgets5 kcontacts5 kcoreaddons5 \
+  kcrash5 kdav5 kdbusaddons5 kdeclarative5 kded5 kdesignerplugin5 kdesu5 \
+  kdiagram5 kdnssd5 kdoctools5 kemoticons5 kfilemetadata5 kglobalaccel5 \
+  kguiaddons5 kholidays5 khtml5 ki18n5 kiconthemes5 kidletime5 \
+  kimageformats5 kinit5 kio5 kirigami5 kitemmodels5 kitemviews5 kjobwidgets5 \
+  kjs5 kjsembed5 kmediaplayer5 knewstuff5 knotifications5 knotifyconfig5 \
+  kpackage5 kparts5 kpeople5 kplotting5 kpty5 kquickcharts5 kross5 krunner5 \
+  kservice5 ktexteditor5 ktextwidgets5 kunitconversion5 kwallet5 kwayland5 \
+  kwidgetsaddons5 kwindowsystem5 kxmlgui5 kxmlrpcclient5 plasma-framework5 \
+  prison5 purpose5 qqc2-desktop-style5 solid5 sonnet5 syndication5 \
+  syntax-highlighting5 threadweaver5 ssr
 
 add_section servers on "Servers, virtualization and databases" \
   qemu lxc php httpd netatalk kea dovecot postfix proftpd bind net-snmp ntp \
@@ -162,7 +206,7 @@ add_section cjk-fonts on "CJK, Indic and Thai fonts (those scripts will show as 
 
 add_section old-tools on "Old terminal editors and optical disc tools" \
   jed joe jove ksh93 sc sc-im dc3dd rdfind seejpeg cdrtools cdrdao \
-  dvd+rw-tools cdparanoia normalize madplay linuxdoc-tools
+  dvd+rw-tools cdparanoia normalize madplay linuxdoc-tools soma
 
 add_section hp-drivers on "HP printer drivers (only useful with an HP printer)" \
   hplip
@@ -172,6 +216,19 @@ add_section x-extra on "Unused X11 tools" \
 
 add_section kernel-source on "Kernel source (only needed to build external kernel modules)" \
   kernel-source
+
+# Demos, designers and test tools that live inside packages Plasma needs
+# (qt6, gtk4, avahi, vulkan-sdk, v4l-utils, wpa_supplicant, zint, vte).
+add_hide launchers on "Menu entries of libraries and demos that cannot be removed" \
+  org.gtk.Demo4.desktop org.gtk.PrintEditor4.desktop \
+  org.gtk.WidgetFactory4.desktop org.gtk.gtk4.NodeEditor.desktop \
+  qt5-assistant.desktop qt5-designer.desktop qt5-linguist.desktop \
+  qt5-qdbusviewer.desktop qt6-assistant.desktop qt6-designer.desktop \
+  qt6-linguist.desktop qt6-qdbusviewer.desktop vulkanCapsViewer.desktop \
+  qv4l2.desktop qvidcap.desktop bssh.desktop bvnc.desktop \
+  avahi-discover.desktop wpa_gui.desktop zint-qt.desktop \
+  org.gnome.Vte.App.Gtk3.desktop org.gnome.Vte.App.Gtk4.desktop \
+  org.gnome.Glade.desktop
 
 # Optional sections: off unless requested with -a or -o NAME
 add_section input-methods off "Input methods and engines (needed to type CJK)" \
@@ -242,11 +299,19 @@ for s in "${SECTIONS[@]}"; do
     continue
   fi
   list=()
+  if [ -n "${HIDE[$s]:-}" ]; then
+    for p in ${PKGS[$s]}; do
+      [ -e "$APPS/$p" ] && list+=("$p")
+    done
+    CAND[$s]="${list[*]}"
+    continue
+  fi
   for p in ${PKGS[$s]}; do
     case "$PROTECTED" in *" $p "*) continue ;; esac
     [ "$p" = "mariadb" ] && [ "$pim_stays" -eq 1 ] && continue
     [ -n "${INSTALLED[$p]:-}" ] || continue
     list+=("$p"); INREM[$p]=1
+    [ -n "${LEGACY[$s]:-}" ] && LEG[$p]=1
   done
   CAND[$s]="${list[*]}"
 done
@@ -263,6 +328,9 @@ if [ "$FORCE" -eq 0 ]; then
   while IFS=$'\t' read -r consumer dep kind; do
     [ -n "${INSTALLED[$consumer]:-}" ] && [ -n "${INSTALLED[$dep]:-}" ] || continue
     case "$IGNORE" in *" $consumer>$dep "*) continue ;; esac
+    if [ -n "${LEG[$dep]:-}" ]; then
+      case "$QT5_TOLERATED" in *" $consumer "*) continue ;; esac
+    fi
     if [ "$kind" = "hard" ]; then RHARD[$dep]+="$consumer "; else RSOFT[$dep]+="$consumer "; fi
   done < <(grep -v '^#' "$DEPS")
   changed=1
@@ -282,8 +350,14 @@ if [ "$FORCE" -eq 0 ]; then
 fi
 
 # Step 3: what is left of each section
+hcount=0
 for s in "${SECTIONS[@]}"; do
   [ -n "${CAND[$s]:-}" ] || continue
+  if [ -n "${HIDE[$s]:-}" ]; then
+    TODO[$s]="${CAND[$s]}"; TOTAL[$s]=0
+    ORDER+=("$s"); set -- ${CAND[$s]}; hcount=$((hcount + $#))
+    continue
+  fi
   list=(); kb=0
   for p in ${CAND[$s]}; do
     [ -n "${INREM[$p]:-}" ] || continue
@@ -304,12 +378,22 @@ printf '  %-16s %8s %10s   %s\n' "SECTION" "PACKAGES" "SIZE" "DESCRIPTION"
 printf '  %-16s %8s %10s   %s\n' "-------" "--------" "----" "-----------"
 for s in "${ORDER[@]}"; do
   set -- ${TODO[$s]}
-  printf '  %-16s %8d %7d MB   %s\n' "$s" "$#" "$((TOTAL[$s] / 1024))" "${DESC[$s]}"
+  if [ -n "${HIDE[$s]:-}" ]; then
+    printf '  %-16s %8d %10s   %s\n' "$s" "$#" "menu only" "${DESC[$s]}"
+  else
+    printf '  %-16s %8d %7d MB   %s\n' "$s" "$#" "$((TOTAL[$s] / 1024))" "${DESC[$s]}"
+  fi
   if [ "$VERBOSE" -eq 1 ]; then
     echo "      ${TODO[$s]}" | fold -s -w 74 | sed '2,$s/^/      /'
   fi
 done
 printf '  %-16s %8d %7d MB\n' "TOTAL" "$count" "$((grand / 1024))"
+[ "$hcount" -gt 0 ] && echo "  plus $hcount menu entries hidden (the programs stay installed)"
+if [ -n "${TODO[qt5]:-}" ]; then
+  echo
+  echo "  Qt5 goes, Plasma 6 does not use it. Only these small things stop working:"
+  echo "  pinentry-qt5, simplescreenrecorder, oxygen-demo5 and the Qt5 input method wrappers."
+fi
 
 if [ "$FORCE" -eq 1 ]; then
   echo
@@ -357,14 +441,21 @@ fi
 
 if [ "$ASSUME_YES" -eq 0 ]; then
   echo
-  read -r -p "Remove these $count packages? [y/N] " answer </dev/tty
+  read -r -p "Remove these $count packages and hide $hcount menu entries? [y/N] " answer </dev/tty
   [ "$answer" = "y" ] || { echo "Cancelled."; exit 0; }
 fi
 
-echo "$(date) removing $count packages" >> "$LOG"
+echo "$(date) removing $count packages, hiding $hcount menu entries" >> "$LOG"
 for s in "${ORDER[@]}"; do
   echo
   echo "=== $s"
+  if [ -n "${HIDE[$s]:-}" ]; then
+    echo "[$s hidden] ${TODO[$s]}" >> "$LOG"
+    for f in ${TODO[$s]}; do
+      rm -f "$APPS/$f" && echo "  hidden: $f"
+    done
+    continue
+  fi
   echo "[$s] ${TODO[$s]}" >> "$LOG"
   removepkg ${TODO[$s]} 2>&1 | tee -a "$LOG"
 done
