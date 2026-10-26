@@ -1,0 +1,19 @@
+--- etc/rc.d/rc.S
++++ etc/rc.d/rc.S
+@@ -14,6 +14,9 @@
+   container="lxc"
+ fi
+ 
++# Redirect all output to /dev/null to hide it from screen
++exec > /dev/null 2>&1
++
+ # Mount /proc if it is not already mounted:
+ if [ ! -d /proc/sys -a -z "$container" ]; then
+   /sbin/mount -v proc /proc -t proc 2> /dev/null
+@@ -542,3 +545,6 @@
+   unset SEED
+   umask "$OLD_UMASK"
+ fi
++
++# Start the Plymouth service:
++/etc/rc.d/rc.plymouth start

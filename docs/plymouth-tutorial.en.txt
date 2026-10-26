@@ -1,0 +1,198 @@
+Tutorial: installing Plymouth on Slackware
+
+We need to install Plymouth and Dracut from SBOPKG.
+Once they are installed we will modify and configure Plymouth.
+I want to add a new theme called slack in the following path:
+/usr/share/plymouth/themes
+
+Then plymouthd.defaults in /usr/share/plymouth/ has to be modified. In my case I leave it like this:
+
+# Distribution defaults. Changes to this file will get overwritten during
+# upgrades.
+[Daemon]
+Theme=slack
+ShowDelay=0
+DeviceTimeout=5
+
+Now everything has to be prepared to configure the initrd.
+The first thing to know is that when you regenerate the initrd it is built inside a folder in the following path:
+/boot/initrd-tree
+We have to add the Plymouth binaries inside that folder, but when a new initrd is built the contents of this folder are deleted first. To prevent this we have to look for a file called mkinitrd.conf.sample in /etc
+
+We open it and modify it the way I left it.
+
+# mkinitrd.conf.sample
+# See "man mkinitrd.conf" for details on the syntax of this file
+#
+#SOURCE_TREE="/boot/initrd-tree"
+CLEAR_TREE="0"
+#OUTPUT_IMAGE="/boot/initrd.gz"
+#KERNEL_VERSION="$(uname -r)"
+#KEYMAP="us"
+#MODULE_LIST="ext4 vmw_balloon vmwgfx ttm drm_kms_helper"
+#LUKSDEV="/dev/sda2"
+#LUKSTRIM="/dev/sda2" # verify support with 'hdparm -I $dev | grep TRIM'
+#LUKSKEY="LABEL=TRAVELSTICK:/keys/alienbob.luks"
+#ROOTDEV="/dev/sda1"
+#ROOTFS="ext4"
+#RESUMEDEV="/dev/sda2"
+#RAID="0"
+#LVM="0"
+#UDEV="1"
+#MODCONF="0"
+#MICROCODE_ARCH="/boot/intel-ucode.cpio"
+#WAIT="1"
+
+If you look at CLEAR_TREE, I uncommented it and set it to zero. That way, when you regenerate the initrd, the initrd-tree folder is not deleted.
+Now we have to add the Plymouth binaries to this folder. To do so we run the following command:
+
+/usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree
+
+With this the binaries are inside initrd-tree and it is time to build a new initrd.gz with the following command:
+
+mkinitrd -F
+
+Once it finishes, we have a new initrd.gz with Plymouth inside it, but we must update GRUB so that it picks up this new initrd and runs Plymouth.
+The first thing I do is edit GRUB in the following path:
+
+sudo nano /etc/default/grub
+
+And I add the following:
+
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0 plymouth:theme=slack"
+
+Then I save and regenerate GRUB so the changes are applied and the boot entry uses the new initrd:
+
+grub-mkconfig -o /boot/grub/grub.cfg
+
+With this the boot system is ready to recognize and run Plymouth. But there is still a lot left to do.
+
+Slackware uses SysV as its init system, since it has not adopted systemd. For this we must understand how the Slackware startup works.
+
+Slackware starts in stages called runlevels, from /etc/rc.d
+
+Inside this folder we can find several scripts and folders, because they follow a startup hierarchy.
+We must know that rc.0 and rc.6 are in charge of shutting down and rebooting Slackware. There are also files that run services at different stages of system startup: rc.S runs the early services and rc.M runs the services at startup.
+
+This is where I realized I needed a service to run Plymouth, and there was none. So I created my own, called rc.plymouth, inside /etc/rc.d, with the following content:
+
+#!/bin/sh
+# Starts and stops the Plymouth service during boot and shutdown.
+
+# Redirect stdout and stderr to /dev/null so no text is printed on the console
+exec >/dev/null 2>&1
+
+# Start the Plymouth daemon
+start_plymouth() {
+    /usr/sbin/plymouthd --pid-file=/run/plymouth/pid
+}
+
+# Stop the Plymouth daemon
+stop_plymouth() {
+    if [ -f /run/plymouth/pid ]; then
+        pid=$(cat /run/plymouth/pid)
+        if [ -n "$pid" ]; then
+            kill "$pid" >/dev/null 2>&1
+            rm /run/plymouth/pid >/dev/null 2>&1
+        fi
+    fi
+}
+
+# Show the Plymouth splash screen
+show_plymouth_splash() {
+    /usr/bin/plymouth --show-splash
+}
+
+# Hide the Plymouth splash screen
+hide_plymouth_splash() {
+    /usr/bin/plymouth --hide-splash
+}
+
+case "$1" in
+    start)
+        echo "Starting Plymouth service..."
+        start_plymouth
+        show_plymouth_splash
+        ;;
+    stop)
+        echo "Stopping Plymouth service..."
+        hide_plymouth_splash
+        stop_plymouth
+        ;;
+    restart)
+        echo "Restarting Plymouth service..."
+        stop_plymouth
+        start_plymouth
+        show_plymouth_splash
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0
+
+With this I had a service in charge of calling Plymouth at startup, reboot and shutdown.
+
+Now, to run it during early boot I had to call this service from the script in charge of early startup. Which one is it? Indeed, rc.S
+
+We open rc.S and, at the beginning of the file, before it mounts /proc, we add:
+
+# Redirect all output to /dev/null to hide it from screen
+exec > /dev/null 2>&1
+
+And at the end of the file we add the call to the Plymouth service so that it starts it.
+
+# Start the Plymouth service:
+/etc/rc.d/rc.plymouth start
+
+
+
+Great! With this we can already see Plymouth at the start of the system boot.
+Now we have to make it stop as soon as the login screen appears. For this we must know that there are two kinds of service runs: those that are started (start) and those that are killed (Kill). In this case we want to turn Plymouth off, and the simplest way is to create a symbolic link to our service. Where? Where the desktop services are started, which is runlevel 4.
+To do this we create a symbolic link from our rc.plymouth in the /etc/rc.d/rc4.d folder with the following command:
+
+ln -s /etc/rc.d/rc.plymouth /etc/rc.d/rc4.d/K99plymouth
+
+If you look, I renamed it from rc.plymouth to K99plymouth. The K makes it kill the service (to run it we would use an "S"), and 99 is the hierarchical order in which I want it to be stopped.
+
+Now we only need it to show on reboot and shutdown. For that we need two more symbolic links, but in this case so that it starts and we can see it.
+In the runlevels, 0 is where shutdown services are added and 6 is for reboot, so we must create two symbolic links in the following paths:
+
+ln -s /etc/rc.d/rc.plymouth /etc/rc.d/rc0.d/S00plymouth
+
+ln -s /etc/rc.d/rc.plymouth /etc/rc.d/rc6.d/S00plymouth
+
+With this we make sure Plymouth can run on reboot and shutdown of Slackware. Now, to run these services we must add calls in rc.6, adding the start and stop of Plymouth.
+
+We open rc.6 and add the following at the beginning of the file:
+
+# Set the path.
+PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin
+
+# Start Plymouth
+if [ -x /etc/rc.d/rc.plymouth ]; then
+    /etc/rc.d/rc.plymouth start
+fi
+
+Right after PATH
+
+and at the end of the file
+
+# Stop Plymouth
+if [ -x /etc/rc.d/rc.plymouth ]; then
+    /etc/rc.d/rc.plymouth stop
+fi
+
+right before
+
+# Now halt (poweroff with APM or ACPI enabled kernels) or reboot.
+if [ "$shutdown_command" = "reboot" ]; then
+  echo "Rebooting."
+  /sbin/reboot
+else
+  /sbin/poweroff
+fi
+
+With this Plymouth is ready to be shown at startup, reboot and shutdown of Slackware.

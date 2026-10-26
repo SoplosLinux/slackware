@@ -1,0 +1,284 @@
+#!/bin/bash
+#BLURB="Remove what a normal Plasma desktop does not need"
+#
+# Script: setup.debloat
+# Description: Turns a full Slackware install into a clean KDE Plasma system.
+#              Removes games, KDE PIM (KMail and friends), extra KDE apps,
+#              education software, rarely used compilers, servers, old
+#              network clients and similar packages that a regular Plasma
+#              distribution does not ship.
+# Author: [SoplosLinux]
+# Version: 2.0
+#
+# Slackware does not track dependencies: removepkg removes exactly what it is
+# told to. Take a snapshot or a backup before running this script.
+#
+# Usage: setup.debloat [options]
+#   -n         dry run: show what would be removed and exit
+#   -v         also list every package name
+#   -y         do not ask for confirmation
+#   -a         also apply the optional sections (see -l)
+#   -o NAME    also apply one optional section (can be repeated)
+#   -x NAME    skip one section (can be repeated)
+#   -l         list the sections and exit
+#   -h         show this help
+#
+# Examples:
+#   setup.debloat -n          see what would happen
+#   setup.debloat             remove the default sections, asking once
+#   setup.debloat -o printing remove the default sections plus printing
+
+PKGDIR=${PKGDIR:-/var/log/packages}
+LOG=${LOG:-/var/log/setup.debloat.log}
+DRY=0 VERBOSE=0 ASSUME_YES=0 ALL=0 LIST=0
+WITH=" " WITHOUT=" "
+
+# Packages that must never be removed, even if a section lists them by mistake
+PROTECTED=" llvm mesa glibc glibc-solibs python3 perl gcc gcc-g++ make binutils
+ git cmake kernel-headers kernel-generic kernel-firmware kernel-modules
+ plasma-workspace plasma-desktop kwin kwin-x11 libplasma sddm xorg-server
+ samba vulkan-sdk pkgtools sysvinit-scripts aaa_base aaa_libraries grub
+ elogind pam shadow coreutils bash util-linux dolphin konsole kate okular
+ gwenview ark spectacle kcalc systemsettings "
+
+SECTIONS=()
+declare -A DEFAULT DESC PKGS
+
+# add_section NAME on|off "description" package...
+add_section() {
+  local name=$1 def=$2 desc=$3
+  shift 3
+  SECTIONS+=("$name")
+  DEFAULT[$name]=$def
+  DESC[$name]=$desc
+  PKGS[$name]="$*"
+}
+
+while getopts "nvyao:x:lh" opt; do
+  case "$opt" in
+    n) DRY=1 ;;
+    v) VERBOSE=1 ;;
+    y) ASSUME_YES=1 ;;
+    a) ALL=1 ;;
+    o) WITH+="$OPTARG " ;;
+    x) WITHOUT+="$OPTARG " ;;
+    l) LIST=1 ;;
+    *) sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  esac
+done
+
+# ---------------------------------------------------------------- sections
+
+add_section games on "KDE and classic games" \
+  bomber bovo granatier kanagram kapman kblocks kbounce kbreakout kdiamond \
+  kfourinline kgoldrunner kigo killbots kiriki kjumpingcube klines kmahjongg \
+  kmines knetwalk knights kolf kpat kreversi kshisen ksirk ksnakeduel \
+  kspaceduel ksudoku ktuberling kubrick lskat palapeli picmi gnugo \
+  knavalbattle klickety katomic kblackbox konquest ksquares kollision \
+  skladnik libkdegames libkmahjongg
+
+add_section education on "KDE education and science" \
+  gcompris-qt klettres kalzium kgeography kiten minuet parley step kig \
+  kstars libindi marble labplot kturtle kalgebra cantor kbruch khangman \
+  kwordquiz artikulate blinken ktouch rocs kmplot analitza \
+  libkeduvocdocument kdeedu-data libnova stellarsolver wcslib
+
+add_section pim on "KDE PIM: KMail, KOrganizer, Akonadi and friends" \
+  kmail kontact korganizer kaddressbook akregator kalarm merkuro zanshin \
+  itinerary ktimetracker kmail-account-wizard pim-data-exporter \
+  pim-sieve-editor grantlee-editor akonadiconsole akonadi-import-wizard \
+  akonadi-calendar-tools mbox-importer kdepim-addons kdepim-runtime akonadi \
+  akonadi-calendar akonadi-contacts akonadi-mime akonadi-search messagelib \
+  mailcommon pimcommon mailimporter incidenceeditor eventviews \
+  calendarsupport libksieve kmailtransport kmime kimap kldap ktnef \
+  kpimtextedit grantleetheme kmbox kcalutils libkdepim kontactinterface \
+  kidentitymanagement ksmtp libgravatar kpkpass kitinerary
+
+add_section kde-heavy on "Heavy KDE applications: office, media, photo" \
+  krita digikam calligra calligraplan kdenlive amarok k3b kmymoney kwave \
+  kid3 ktorrent libktorrent kget glaxnimate kile krusader konversation \
+  falkon konqueror
+
+add_section kde-extra on "Other KDE applications and developer tools" \
+  koko neochat tokodon kdeconnect-kde khelpcenter kgpg kleopatra marknote \
+  okteta lokalize kdev-php elisa ghostwriter klevernotes kasts haruna juk \
+  kcachegrind subtitlecomposer kmouth krdc krfb kgraphviewer skanlite \
+  kompare audex audiocd-kio yakuake krename kteatime kmag kfind kdf kcron \
+  arianna kimagemapeditor filelight kbackup alkimia kalk kcharselect dragon \
+  kamera kamoso kruler kmousetool isoimagewriter kontrast keysmith \
+  kapptemplate kdevelop-pg-qt ktimer kdebugsettings kde-dev-scripts \
+  kde-dev-utils poxml massif-visualizer alligator qrca francis \
+  kdesdk-thumbnailers plasma-sdk kirigami-gallery ksystemlog kolourpaint \
+  plasma-bigscreen khealthcertificate kosmindoormap kcolorchooser \
+  keditbookmarks
+
+add_section dev-languages on "Compilers and languages rarely used" \
+  gcc-gnat gcc-gdc gcc-go gcc-objc gcc-gfortran gcc-gcobol gcc-rust gcc-gm2 \
+  gnucobol google-go-lang clisp guile ruby python2 poke p2c dev86 kdevelop \
+  kdev-python umbrello libgccjit vala
+
+add_section dev-tools on "Secondary development tools" \
+  mercurial subversion cvs rcs valgrind doxygen oprofile scons swig mold \
+  distcc icecream ccache cscope universal-ctags tree-sitter googletest gyp \
+  indent yasm nasm
+
+add_section rust on "Rust toolchain (only needed to build some software)" \
+  rust cargo-c rust-bindgen cbindgen cargo-vendor-filterer corrosion
+
+add_section servers on "Servers, virtualization and databases" \
+  qemu lxc php httpd netatalk kea dovecot postfix proftpd bind net-snmp ntp \
+  alpine nmap mariadb nut
+
+add_section old-net on "Old network, mail and chat clients and daemons" \
+  htdig fetchmail getmail procmail popa3d vsftpd uucp yptools mcabber elm \
+  mutt s-nail tin slrn nn epic5 irssi metamail ncftp lynx links lftp ytalk \
+  bsd-finger netkit-rsh netkit-ftp netkit-timed netkit-ntalk netkit-routed \
+  netkit-rwho netkit-rusers netkit-rwall netkit-bootparamd tftp-hpa bootp \
+  inetd newspost snownews pidentd icmpinfo netwrite netdate stunnel ulogd \
+  pssh biff+comsat rdist
+
+add_section cjk-fonts on "CJK, Indic and Thai fonts (those scripts will show as boxes)" \
+  noto-cjk-fonts-ttf sazanami-fonts-ttf wqy-zenhei-font-ttf ttf-indic-fonts \
+  ttf-tlwg tibmachuni-font-ttf font-misc-meltho
+
+add_section old-tools on "Old terminal editors and optical disc tools" \
+  jed joe jove ksh93 sc sc-im dc3dd rdfind seejpeg cdrtools cdrdao \
+  dvd+rw-tools cdparanoia normalize madplay linuxdoc-tools
+
+add_section x-extra on "Unused X11 tools" \
+  igt-gpu-tools compiz
+
+add_section kernel-source on "Kernel source (only needed to build external kernel modules)" \
+  kernel-source
+
+# Optional sections: off unless requested with -a or -o NAME
+add_section dev-extra off "Build tools not needed for a kernel (cmake, autotools, meson, ...)" \
+  cmake Cython python-pip gdb re2c meson ninja autoconf-archive parallel \
+  autoconf libtool automake gettext-tools extra-cmake-modules stb strace \
+  lua luajit help2man jq nv-codec-headers opencl-headers AMF-headers pmake \
+  gperf patchelf check intltool clinfo rinutils sassc slacktrack
+
+add_section input-methods off "Input methods and engines (needed to type CJK)" \
+  ibus ibus-table m17n-lib fcitx5 fcitx5-configtool fcitx5-theme-breeze \
+  skkdic libkkc-data anthy-unicode ibus-anthy libpinyin fcitx5-table-extra \
+  libhangul ibus-libpinyin fcitx5-chinese-addons OpenCC libime
+
+add_section printing off "Printing (needed only if you own a printer)" \
+  hplip gutenprint cups cups-filters cups-browsed system-config-printer \
+  print-manager a2ps enscript
+
+add_section misc off "Documentation tools, Node.js and other leaf packages" \
+  nodejs python-sphinx python-sphinx_rtd_theme glade graphviz mlt libvisio \
+  tango-icon-theme ghostscript ghostscript-fonts-std rpm vorbis-tools \
+  xfsdump speech-dispatcher espeak-ng
+
+# ---------------------------------------------------------------- helpers
+
+enabled() {
+  local name=$1
+  case "$WITHOUT" in *" $name "*) return 1 ;; esac
+  [ "${DEFAULT[$name]}" = "on" ] && return 0
+  [ "$ALL" -eq 1 ] && return 0
+  case "$WITH" in *" $name "*) return 0 ;; esac
+  return 1
+}
+
+if [ "$LIST" -eq 1 ]; then
+  for s in "${SECTIONS[@]}"; do
+    printf '  %-16s %-4s %s\n' "$s" "${DEFAULT[$s]}" "${DESC[$s]}"
+  done
+  echo
+  echo "  on = applied by default, off = optional (use -a or -o NAME)"
+  exit 0
+fi
+
+if [ "$DRY" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
+  echo "This script must be run as root (or use -n for a dry run)."
+  exit 1
+fi
+
+# Installed packages by base name, with their uncompressed size in KB
+declare -A INSTALLED SIZE
+while IFS=$'\t' read -r name kb; do
+  INSTALLED[$name]=1
+  SIZE[$name]=$kb
+done < <(awk '
+  FNR==1 {n=FILENAME; sub(".*/","",n); sub(/-[^-]*-[^-]*-[^-]*$/,"",n); name=n; print name "\t0"}
+  /^UNCOMPRESSED PACKAGE SIZE:/ {
+    s=$0; sub(/^[^:]*:/,"",s); gsub(/[ \t]/,"",s)
+    match(s,/^[0-9.]+/); v=substr(s,1,RLENGTH); u=toupper(substr(s,RLENGTH+1,1))
+    if (u=="M") v*=1024; else if (u=="G") v*=1048576
+    print name "\t" int(v)
+  }
+' "$PKGDIR"/* 2>/dev/null | awk -F'\t' '{k[$1]=($2>k[$1]?$2:k[$1])} END{for(n in k) print n "\t" k[n]}')
+
+# mariadb is only needed by Akonadi: keep it if the PIM stack stays
+pim_stays=0
+case "$WITHOUT" in *" pim "*) [ -n "${INSTALLED[akonadi]:-}" ] && pim_stays=1 ;; esac
+
+declare -A TODO TOTAL
+ORDER=(); skipped=(); grand=0; count=0
+for s in "${SECTIONS[@]}"; do
+  if ! enabled "$s"; then
+    [ "${DEFAULT[$s]}" = "off" ] && skipped+=("$s")
+    continue
+  fi
+  list=(); kb=0
+  for p in ${PKGS[$s]}; do
+    case "$PROTECTED" in *" $p "*) continue ;; esac
+    [ "$p" = "mariadb" ] && [ "$pim_stays" -eq 1 ] && continue
+    [ -n "${INSTALLED[$p]:-}" ] || continue
+    list+=("$p"); kb=$((kb + ${SIZE[$p]:-0}))
+  done
+  [ "${#list[@]}" -eq 0 ] && continue
+  TODO[$s]="${list[*]}"; TOTAL[$s]=$kb
+  ORDER+=("$s"); grand=$((grand + kb)); count=$((count + ${#list[@]}))
+done
+
+if [ "${#ORDER[@]}" -eq 0 ]; then
+  echo "Nothing to remove: this system is already clean."
+  exit 0
+fi
+
+echo
+printf '  %-16s %8s %10s   %s\n' "SECTION" "PACKAGES" "SIZE" "DESCRIPTION"
+printf '  %-16s %8s %10s   %s\n' "-------" "--------" "----" "-----------"
+for s in "${ORDER[@]}"; do
+  set -- ${TODO[$s]}
+  printf '  %-16s %8d %7d MB   %s\n' "$s" "$#" "$((TOTAL[$s] / 1024))" "${DESC[$s]}"
+  if [ "$VERBOSE" -eq 1 ]; then
+    echo "      ${TODO[$s]}" | fold -s -w 74 | sed '2,$s/^/      /'
+  fi
+done
+printf '  %-16s %8d %7d MB\n' "TOTAL" "$count" "$((grand / 1024))"
+
+if [ "${#skipped[@]}" -gt 0 ]; then
+  echo
+  echo "  Optional sections not applied: ${skipped[*]}"
+  echo "  Add them with -o NAME, or all of them with -a (see -l)."
+fi
+
+if [ "$DRY" -eq 1 ]; then
+  echo
+  echo "Dry run, nothing was removed."
+  exit 0
+fi
+
+if [ "$ASSUME_YES" -eq 0 ]; then
+  echo
+  read -r -p "Remove these $count packages? [y/N] " answer </dev/tty
+  [ "$answer" = "y" ] || { echo "Cancelled."; exit 0; }
+fi
+
+echo "$(date) removing $count packages" >> "$LOG"
+for s in "${ORDER[@]}"; do
+  echo
+  echo "=== $s"
+  echo "[$s] ${TODO[$s]}" >> "$LOG"
+  removepkg ${TODO[$s]} 2>&1 | tee -a "$LOG"
+done
+
+echo
+df -h / | tail -n 1
+echo "Done. Removed package names are logged in $LOG"
+echo "Log out and back in so the desktop picks up the changes."

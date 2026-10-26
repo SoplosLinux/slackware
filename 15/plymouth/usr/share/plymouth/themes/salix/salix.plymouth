@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Salix Plymouth
+Description=A Plymouth of Salix by Soplos Linux
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/salix
+ScriptFile=/usr/share/plymouth/themes/salix/salix.script

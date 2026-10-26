@@ -1,0 +1,76 @@
+#!/bin/bash
+#BLURB="Install Plymouth Splash on Slackware"
+#
+# Script: plymouth_setup.sh
+# Description: Setup script for Plymouth on Slackware Linux
+# Author: [SoplosLinux]
+# Date: [05/05/2024]
+# Version: 1.1
+
+# Create temporary directory and navigate into it
+mkdir /tmp/plymouth
+cd /tmp/plymouth
+
+# Download and install sbopkg
+wget https://github.com/sbopkg/sbopkg/releases/download/0.38.2/sbopkg-0.38.2-noarch-1_wsr.tgz
+installpkg sbopkg-0.38.2-noarch-1_wsr.tgz
+rm sbopkg-0.38.2-noarch-1_wsr.tgz
+
+# Update sbopkg repository
+sbopkg -r
+
+# Install plymouth and dracut using sbopkg
+sbopkg -i "plymouth dracut"
+
+# Fetch the repository files; they live under 15/plymouth/ at the same paths
+# where they are installed
+git clone --depth 1 https://github.com/SoplosLinux/slackware.git /tmp/plymouth/repo
+SRC=/tmp/plymouth/repo/15/plymouth
+
+# Install the Plymouth theme
+cp -r $SRC/usr/share/plymouth/themes/slack /usr/share/plymouth/themes/
+
+# Replace the default Plymouth configuration file
+cp /usr/share/plymouth/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults.back
+cp $SRC/usr/share/plymouth/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults
+
+# Install the rc.plymouth script
+cp $SRC/etc/rc.d/rc.plymouth /etc/rc.d/rc.plymouth
+chmod +x /etc/rc.d/rc.plymouth
+
+# Create symbolic links for Plymouth service
+ln -s /etc/rc.d/rc.plymouth /etc/rc.d/rc4.d/K99plymouth
+ln -s /etc/rc.d/rc.plymouth /etc/rc.d/rc0.d/S00plymouth
+ln -s /etc/rc.d/rc.plymouth /etc/rc.d/rc6.d/S00plymouth
+
+# Backup and replace rc.S and rc.6 scripts
+cp /etc/rc.d/rc.S /etc/rc.d/rc.S.back
+cp /etc/rc.d/rc.6 /etc/rc.d/rc.6.back
+cp $SRC/etc/rc.d/rc.S /etc/rc.d/rc.S
+cp $SRC/etc/rc.d/rc.6 /etc/rc.d/rc.6
+chmod +x /etc/rc.d/rc.S
+chmod +x /etc/rc.d/rc.6
+
+# Populate initrd with Plymouth theme
+/usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree
+
+# Replace grub
+mv /etc/default/grub /etc/default/grub.back
+cp $SRC/etc/default/grub /etc/default/grub
+
+# Replace Load Kernel Modules
+cp /boot/initrd-tree/load_kernel_modules /boot/initrd-tree/load_kernel_modules.back
+cp $SRC/boot/initrd-tree/load_kernel_modules /boot/initrd-tree/load_kernel_modules
+chmod +x /boot/initrd-tree/load_kernel_modules
+
+# Rebuild initrd and update GRUB configuration
+mv /etc/mkinitrd.conf /etc/mkinitrd.conf.back
+cp $SRC/etc/mkinitrd.conf /etc/mkinitrd.conf
+mkinitrd -F
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Cleanup temporary directory
+cd /
+rm -r /tmp/plymouth
+
+echo "Plymouth setup completed successfully."

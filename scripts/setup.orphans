@@ -1,0 +1,124 @@
+#!/bin/bash
+#BLURB="List library packages that no installed program needs"
+#
+# Script: setup.orphans
+# Description: Read-only scanner. Finds packages of the "l" (libraries) series
+#              that no installed program or library links against. It never
+#              removes anything: it writes a report to review by hand.
+# Author: [SoplosLinux]
+# Version: 1.0
+#
+# How it works: every package outside the "l" series is a root. The script
+# reads the shared libraries (DT_NEEDED) of every program and library in the
+# roots, maps each one to the package that provides it, and follows the chain
+# through the "l" packages it reaches. What is never reached is reported.
+#
+# Limits: libraries loaded at run time (dlopen), Python and Perl modules, QML
+# modules and plugins are not visible to this scan. Packages whose name looks
+# like one of those are listed apart as "suspect". Review before removing.
+#
+# Usage: setup.orphans [-o report] [-p PACKAGES.TXT] [-h]
+#   -o  report file (default: ./orphans.txt)
+#   -p  local PACKAGES.TXT; by default it is downloaded from the mirror
+#   -h  show this help
+
+PKGDIR=${PKGDIR:-/var/log/packages}
+ROOT=${ROOT:-}
+MIRROR=${MIRROR:-https://mirrors.slackware.com/slackware/slackware64-current/slackware64/PACKAGES.TXT}
+OUT=./orphans.txt
+PACKAGES_TXT=
+
+while getopts "o:p:h" opt; do
+  case "$opt" in
+    o) OUT=$OPTARG ;;
+    p) PACKAGES_TXT=$OPTARG ;;
+    *) sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  esac
+done
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/files"
+
+# Series and uncompressed size (KB) of every package of the distribution
+if [ -z "$PACKAGES_TXT" ]; then
+  PACKAGES_TXT=$WORK/PACKAGES.TXT
+  curl -sfL "$MIRROR" -o "$PACKAGES_TXT" || { echo "Could not download $MIRROR"; exit 1; }
+fi
+awk '
+  /^PACKAGE NAME:/ {n=$3; sub(/\.t[gx]z$/,"",n); sub(/-[^-]*-[^-]*-[^-]*$/,"",n)}
+  /^PACKAGE LOCATION:/ {k=split($3,a,"/"); s=a[k]}
+  /^PACKAGE SIZE \(uncompressed\):/ {v=$4; if ($5=="M") v*=1024; if ($5=="G") v*=1048576; printf "%s\t%s\t%d\n", n, s, v}
+' "$PACKAGES_TXT" | sort -u > "$WORK/series.tsv"
+
+# File index: one "package<TAB>path" line per installed file
+awk '
+  FNR==1 {name=FILENAME; sub(".*/","",name); sub(/-[^-]*-[^-]*-[^-]*$/,"",name); inlist=0}
+  /^FILE LIST:/ {inlist=1; next}
+  inlist && $0 !~ /\/$/ && $0 != "./" {print name "\t" $0}
+' "$PKGDIR"/* | sort -t "$(printf '\t')" -k1,1 > "$WORK/index.tsv"
+
+# Split the index per package and build the soname -> package map
+awk -F'\t' -v dir="$WORK/files" '
+  $1 != cur {if (cur != "") close(out); cur=$1; out=dir "/" cur}
+  {print $2 > out}
+' "$WORK/index.tsv"
+awk -F'\t' '
+  {n=split($2,a,"/"); b=a[n]; if (b ~ /\.so(\.[0-9A-Za-z_]+)*$/) print b "\t" $1}
+' "$WORK/index.tsv" | sort -u > "$WORK/soname.tsv"
+
+declare -A SERIES SIZE SONAME REACHED
+while IFS=$'\t' read -r n s v; do SERIES[$n]=$s; SIZE[$n]=$v; done < "$WORK/series.tsv"
+while IFS=$'\t' read -r so pkg; do SONAME[$so]+="$pkg "; done < "$WORK/soname.tsv"
+
+INSTALLED=$(ls "$WORK/files")
+queue=()
+for p in $INSTALLED; do
+  if [ "${SERIES[$p]:-}" = "l" ]; then continue; fi
+  queue+=("$p")
+done
+
+# Breadth-first walk: scan the programs and libraries of each queued package
+scan_package() {
+  grep -E '^(usr/)?(bin|sbin|lib|lib64|libexec)/|^opt/' "$WORK/files/$1" 2>/dev/null \
+    | grep -v '^lib/modules/' | sed "s|^|$ROOT/|" \
+    | tr '\n' '\0' | xargs -0 -r readelf -d -W 2>/dev/null \
+    | awk '/\(NEEDED\)/ {gsub(/[][]/,"",$NF); print $NF}' | sort -u
+}
+
+head=0
+while [ "$head" -lt "${#queue[@]}" ]; do
+  p=${queue[$head]}; head=$((head + 1))
+  for so in $(scan_package "$p"); do
+    for q in ${SONAME[$so]:-}; do
+      if [ "${SERIES[$q]:-}" = "l" ] && [ -z "${REACHED[$q]:-}" ]; then
+        REACHED[$q]=1
+        queue+=("$q")
+      fi
+    done
+  done
+done
+
+# Report
+SUSPECT='^(gst-|gstreamer|python|Py|sip$|pipewire|pulseaudio|speech|espeak|ffmpeg|gdk-pixbuf|librsvg|qt|icu|aspell|hunspell|libvisio|libwpd|libwpg|libreoffice)'
+likely=(); suspect=(); tl=0; ts=0
+for p in $INSTALLED; do
+  [ "${SERIES[$p]:-}" = "l" ] || continue
+  [ -n "${REACHED[$p]:-}" ] && continue
+  if [[ $p =~ $SUSPECT ]]; then suspect+=("$p"); ts=$((ts + ${SIZE[$p]:-0}))
+  else likely+=("$p"); tl=$((tl + ${SIZE[$p]:-0})); fi
+done
+
+{
+  echo "Packages of series l not reached by any program (read-only report)"
+  echo
+  echo "== Likely orphans: ${#likely[@]} packages, $((tl / 1024)) MB"
+  for p in "${likely[@]}"; do printf '%8d KB  %s\n' "${SIZE[$p]:-0}" "$p"; done | sort -rn
+  echo
+  echo "== Not reached, but loaded at run time or by a script: ${#suspect[@]} packages, $((ts / 1024)) MB"
+  for p in "${suspect[@]}"; do printf '%8d KB  %s\n' "${SIZE[$p]:-0}" "$p"; done | sort -rn
+} > "$OUT"
+
+echo "Report written to $OUT"
+echo "  likely orphans: ${#likely[@]} packages, $((tl / 1024)) MB"
+echo "  suspect (dlopen, scripts): ${#suspect[@]} packages, $((ts / 1024)) MB"

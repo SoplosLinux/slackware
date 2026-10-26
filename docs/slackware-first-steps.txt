@@ -1,0 +1,63 @@
+Slackware first steps (GRUB, runlevel, mirrors, user, sudo)
+
+Written for Slackware 15. Check each step against the release you install.
+
+GRUB from the installer (UEFI, after installing from the setup media)
+
+  chroot /mnt
+  source /etc/profile
+  grub-install --target=x86_64-efi --efi-directory=/boot/efi/ --bootloader-id=efi
+  grub-mkconfig -o /boot/grub/grub.cfg
+  exit
+  umount -a
+  reboot
+
+Graphical login (runlevel 4)
+
+  nano /etc/inittab
+  Change the default runlevel from 3 to 4.
+
+Mirrors and updates
+
+  nano /etc/slackpkg/mirrors      (uncomment one mirror)
+  slackpkg update gpg
+  slackpkg update
+  slackpkg install-new
+  slackpkg upgrade-all
+
+Add a user with sudo
+
+  adduser soplos
+  id -u
+  su
+  nano /etc/group
+      sudo:x:1000:YourUserName
+  visudo
+      # %sudo ALL=(ALL) ALL
+      soplos ALL=(ALL:ALL) ALL
+      Defaults env_reset,pwfeedback
+
+Default PATH for all users
+
+  nano /etc/profile
+  Replace
+      PATH="/usr/local/bin:/usr/bin:/bin:/usr/games"
+  with
+      PATH="/usr/local/bin:/usr/bin:/bin:/usr/games:/sbin:/usr/sbin"
+
+VMware Tools (classic installer)
+
+  nano /etc/rc.d/rc.local
+      /etc/rc.d/init.d/vmware-tools start
+
+  The classic installer is not supported on recent kernels. See the notes
+  about open-vm-tools in the project documentation.
+
+Utilities from SlackBuilds.org
+
+  Install sbopkg first, then:
+  sbopkg -i "p7zip rar unrar libtar"
+
+Plymouth
+
+  It needs dracut. See plymouth-tutorial.en.txt.

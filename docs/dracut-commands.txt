@@ -1,0 +1,3 @@
+/usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree
+mkinitrd -F && grub-mkconfig -o /boot/grub/grub.cfg && sudo reboot
+mkinitrd -c -k 6.6.28 -f ext4 -r /dev/sda3 -m mptbase:mptscsih:mptspi:ext4 -u -o /boot/initrd.gz && grub-mkconfig -o /boot/grub/grub.cfg

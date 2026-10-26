@@ -1,0 +1,13 @@
+#!/bin/bash
+#BLURB="Update grub with mkconfig"
+#
+# Script: update_grub
+# Description: Setup script to update GRUB on Slackware Linux
+# Author: [SoplosLinux]
+# Date: [10/05/2024]
+# Version: 1.0
+
+# Regenerate the GRUB configuration
+grub-mkconfig -o /boot/grub/grub.cfg
+
+echo "Grub updated"

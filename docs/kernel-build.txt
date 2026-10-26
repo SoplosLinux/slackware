@@ -1,0 +1,45 @@
+Building a kernel on Slackware
+
+Example with kernel 6.8.8. Replace the version with the one you download.
+
+  su
+  cd /usr/src
+
+Download the tarball from kernel.org:
+
+  wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.8.8.tar.xz
+  tar -xvf linux-6.8.8.tar.xz
+  cd linux-6.8.8
+  make clean && make mrproper
+
+Start from the configuration of the generic kernel, or from the loaded modules:
+
+  cp /boot/config-generic-6.6.29.x64 .config
+  or
+  make localmodconfig
+
+  make menuconfig
+  make -j 8
+  make modules_install
+
+Install the kernel, map and configuration:
+
+  cp arch/x86/boot/bzImage /boot/vmlinuz-soplos-6.8.8
+  cp System.map /boot/System.map-soplos-6.8.8
+  cp .config /boot/config-soplos-6.8.8
+  cd /boot
+  rm System.map
+  ln -s System.map-soplos-6.8.8 System.map
+
+Build the initrd (adapt the root device and the modules to your system):
+
+  mkinitrd -c -k 6.8.8_soplos-linux -f ext4 -r /dev/sda3 -m mptbase:mptscsih:mptspi:ext4 -u -o /boot/initrd.gz
+
+If you use Plymouth, add its binaries to the initrd tree and rebuild:
+
+  /usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree
+  mkinitrd -F
+
+Update the GRUB menu:
+
+  grub-mkconfig -o /boot/grub/grub.cfg

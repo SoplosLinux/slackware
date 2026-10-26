@@ -480,5 +480,5 @@ if [ -z "$container" ]; then
   chmod 600 /etc/random-seed
 fi
 
-# Iniciar servicio de Plymouth
+# Start the Plymouth service:
 /etc/rc.d/rc.plymouth start

@@ -1,0 +1,106 @@
+#!/bin/bash
+#BLURB="Install the Plymouth splash on Slackware 16"
+#
+# Script: setup.plymouth.installer (Slackware 16)
+# Description: Installs the Soplos Plymouth theme and hooks it into the init
+#              scripts of Slackware 16 by patching them, instead of replacing
+#              them, so the changes Slackware makes to rc.S and rc.6 are kept.
+#              It also installs a geninitrd hook that regenerates the GRUB menu
+#              whenever a kernel is installed.
+# Author: [SoplosLinux]
+# Version: 1.0
+#
+# Status: not tested on a real Slackware 16 yet. Take a snapshot first.
+#
+# Requirements:
+#   - Plymouth installed (for example from SlackBuilds.org)
+#   - GRUB as the boot loader
+#   - run from a clone of the repository:  ./16/scripts/setup.plymouth.installer
+#
+# Every file that is changed is first copied to FILE.pre-plymouth, and only
+# if that copy does not exist yet, so running the script twice never loses
+# the original.
+
+set -u
+ROOT=${ROOT:-}
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
+SHARED=$REPO/15/plymouth
+PATCHES=$REPO/16/patches
+HOOK=$REPO/16/etc/geninitrd.d/post-install/grub-update.sh
+
+die() { echo "Error: $*"; exit 1; }
+
+if [ -z "$ROOT" ]; then
+  [ "$(id -u)" -eq 0 ] || die "this script must be run as root."
+  command -v plymouthd > /dev/null 2>&1 || die "Plymouth is not installed. Install it first (for example: sbopkg -i plymouth)."
+fi
+command -v patch > /dev/null 2>&1 || die "the patch command is missing."
+[ -d "$SHARED/usr/share/plymouth/themes/slack" ] || die "run this script from a clone of the repository."
+
+backup() {
+  [ -e "$1" ] && [ ! -e "$1.pre-plymouth" ] && cp -p "$1" "$1.pre-plymouth"
+  return 0
+}
+
+# 1. Check that both patches apply before changing anything
+echo "Checking that the init script patches apply..."
+for name in rc.S rc.6; do
+  file=$ROOT/etc/rc.d/$name
+  [ -e "$file" ] || die "$file not found."
+  if grep -q "rc.plymouth" "$file"; then
+    echo "  $name already patched, skipping"
+    continue
+  fi
+  (cd "${ROOT:-/}" && patch -p0 --dry-run -s < "$PATCHES/$name.patch") \
+    || die "$name does not match the Slackware 16 version this patch was made for. Nothing was changed."
+done
+
+# 2. Theme, defaults and service script
+echo "Installing the theme and the service script..."
+mkdir -p "$ROOT/usr/share/plymouth/themes" "$ROOT/etc/rc.d"
+cp -r "$SHARED/usr/share/plymouth/themes/slack" "$ROOT/usr/share/plymouth/themes/"
+backup "$ROOT/usr/share/plymouth/plymouthd.defaults"
+cp "$SHARED/usr/share/plymouth/plymouthd.defaults" "$ROOT/usr/share/plymouth/plymouthd.defaults"
+cp "$SHARED/etc/rc.d/rc.plymouth" "$ROOT/etc/rc.d/rc.plymouth"
+chmod 755 "$ROOT/etc/rc.d/rc.plymouth"
+
+# 3. Stop the splash when the graphical login starts (runlevel 4)
+if [ -d "$ROOT/etc/rc.d/rc4.d" ] && [ ! -L "$ROOT/etc/rc.d/rc4.d/K99plymouth" ]; then
+  ln -s /etc/rc.d/rc.plymouth "$ROOT/etc/rc.d/rc4.d/K99plymouth"
+fi
+
+# 4. Patch the init scripts
+echo "Patching the init scripts..."
+for name in rc.S rc.6; do
+  file=$ROOT/etc/rc.d/$name
+  grep -q "rc.plymouth" "$file" && continue
+  backup "$file"
+  (cd "${ROOT:-/}" && patch -p0 -s < "$PATCHES/$name.patch") || die "patching $name failed."
+done
+
+# 5. GRUB: quiet splash on the kernel command line
+grubdef=$ROOT/etc/default/grub
+if [ -e "$grubdef" ]; then
+  backup "$grubdef"
+  for word in quiet splash; do
+    if ! grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef" | grep -qw "$word"; then
+      sed -i "s/^\(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\)\"/\1 $word\"/; s/^GRUB_CMDLINE_LINUX_DEFAULT=\" /GRUB_CMDLINE_LINUX_DEFAULT=\"/" "$grubdef"
+      echo "Added $word to GRUB_CMDLINE_LINUX_DEFAULT."
+    fi
+  done
+else
+  echo "Warning: $grubdef not found, add 'quiet splash' to your boot loader by hand."
+fi
+
+# 6. GRUB hook for kernel installs
+mkdir -p "$ROOT/etc/geninitrd.d/post-install"
+cp "$HOOK" "$ROOT/etc/geninitrd.d/post-install/grub-update.sh"
+chmod 755 "$ROOT/etc/geninitrd.d/post-install/grub-update.sh"
+
+# 7. Regenerate the GRUB menu now
+if [ -z "$ROOT" ] && [ -d /boot/grub ]; then
+  if command -v grub-update > /dev/null 2>&1; then grub-update; else grub-mkconfig -o /boot/grub/grub.cfg; fi
+fi
+
+echo "Done. Reboot to see the splash."
+echo "Originals were saved with the .pre-plymouth suffix."

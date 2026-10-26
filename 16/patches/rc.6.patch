@@ -1,0 +1,26 @@
+--- etc/rc.d/rc.6
++++ etc/rc.d/rc.6
+@@ -12,6 +12,11 @@
+ # Set the path.
+ PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin
+ 
++# Start Plymouth
++if [ -x /etc/rc.d/rc.plymouth ]; then
++  /etc/rc.d/rc.plymouth start
++fi
++
+ # If we are in an lxc container, set $container to skip parts of the script.
+ # Thanks to Matteo Bernardini <ponce@slackbuilds.org> and Chris Willing for
+ # the initial work making this script lxc compatible.
+@@ -383,6 +388,11 @@
+   sleep 15
+ fi
+ 
++# Stop Plymouth
++if [ -x /etc/rc.d/rc.plymouth ]; then
++  /etc/rc.d/rc.plymouth stop
++fi
++
+ # Now poweroff or reboot.
+ if [ "$shutdown_command" = "reboot" ]; then
+   # Do we have kexec?

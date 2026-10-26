@@ -1,0 +1,51 @@
+#!/bin/bash
+#BLURB="Update Kernel version to 6.8.9"
+# Script created by Soplos Linux to compile and install kernel 6.8.9 on Slackware 15.0 Current
+
+# Change directory to /usr/src
+cd /usr/src
+
+# Download kernel 6.8.9
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.8.9.tar.xz
+
+# Extract the archive
+tar -xvf linux-6.8.9.tar.xz
+
+# Remove the compressed file
+rm linux-6.8.9.tar.xz
+
+# Change to the kernel directory
+cd linux-6.8.9
+
+# Clean and configure the kernel
+make clean && make mrproper
+make localmodconfig
+make menuconfig
+
+# Compile the kernel
+make -j 8
+
+# Install kernel modules
+make modules_install
+
+# Copy the kernel and necessary files to /boot
+cp /usr/src/linux-6.8.9/arch/x86/boot/bzImage /boot/vmlinuz-soplos-6.8.9
+cp /usr/src/linux-6.8.9/System.map /boot/System.map-soplos-6.8.9
+cp /usr/src/linux-6.8.9/.config /boot/config-soplos-6.8.9
+
+# Change to /boot directory
+cd /boot
+
+# Remove symbolic link and create a new one
+rm System.map
+ln -s System.map-soplos-6.8.9 System.map
+
+# Create initrd
+mkinitrd -c -k 6.8.9-soplos-linux -f ext4 -r /dev/sda3 -m mptbase:mptscsih:mptspi:ext4 -u -o /boot/initrd.gz
+/usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree
+mkinitrd -F
+
+# Update GRUB configuration
+grub-mkconfig -o /boot/grub/grub.cfg
+
+echo "Kernel 6.8.9 has been installed and configured successfully."
