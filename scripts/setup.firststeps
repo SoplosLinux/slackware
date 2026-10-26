@@ -1,0 +1,176 @@
+#!/bin/bash
+#BLURB="First steps after installing Slackware"
+#
+# Script: setup.firststeps
+# Description: The usual first steps of a fresh Slackware install, one by one.
+# Author: [SoplosLinux]
+# Version: 1.0
+#
+# Status: not tested on a real Slackware yet. Every file it changes is first
+# copied to FILE.pre-soplos, and only if that copy does not exist yet.
+#
+# Usage: setup.firststeps ACTION
+#   runlevel4   boot into the graphical login (runlevel 4)
+#   updates     choose a mirror if none is set, then update slackpkg and upgrade
+#   user        create a user and give it sudo
+#   lang        set the system language
+#   resolution  force a screen resolution for X11
+#   userdirs    rename the user folders (Desktop, Documents, ...) to Spanish
+
+set -u
+ROOT=${ROOT:-}
+TTY=${SOPLOS_TTY:-/dev/tty}
+
+die() { echo "Error: $*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "this script must be run as root."
+
+backup() {
+  [ -e "$1" ] && [ ! -e "$1.pre-soplos" ] && cp -p "$1" "$1.pre-soplos"
+  return 0
+}
+
+ask() {
+  local answer
+  read -r -p "$1" answer <"$TTY"
+  echo "${answer:-${2:-}}"
+}
+
+release() {
+  sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' "$ROOT/etc/slackware-version" 2> /dev/null | head -n 1
+}
+
+action_runlevel4() {
+  local f=$ROOT/etc/inittab
+  [ -e "$f" ] || die "$f not found."
+  if grep -q '^id:4:initdefault:' "$f"; then
+    echo "Already booting into runlevel 4."
+    return
+  fi
+  grep -q '^id:3:initdefault:' "$f" || die "unexpected /etc/inittab: no id:3:initdefault line."
+  backup "$f"
+  sed -i 's/^id:3:initdefault:/id:4:initdefault:/' "$f"
+  echo "Default runlevel set to 4. It takes effect on the next boot."
+}
+
+action_updates() {
+  local mirrors=$ROOT/etc/slackpkg/mirrors url
+  [ -e "$mirrors" ] || die "$mirrors not found. Is slackpkg installed?"
+  if ! grep -q '^[^#[:space:]]' "$mirrors"; then
+    case "$(release)" in
+      15) url=https://mirrors.slackware.com/slackware/slackware64-15.0/ ;;
+      *)  url=https://mirrors.slackware.com/slackware/slackware64-current/ ;;
+    esac
+    backup "$mirrors"
+    echo "$url" >> "$mirrors"
+    echo "No mirror was set, using $url"
+  fi
+  slackpkg -batch=on -default_answer=y update gpg || die "slackpkg update gpg failed."
+  slackpkg -batch=on -default_answer=y update || die "slackpkg update failed."
+  slackpkg -batch=on -default_answer=y upgrade-all
+  echo "Updated. install-new is not run on purpose: it would bring back the packages you removed."
+}
+
+action_user() {
+  local user sudoers=$ROOT/etc/sudoers rule
+  user=$(ask "New user name: ")
+  [[ $user =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid user name."
+  if id "$user" > /dev/null 2>&1; then
+    echo "User $user already exists."
+  else
+    adduser "$user" || die "adduser failed."
+  fi
+  rule="$user ALL=(ALL:ALL) ALL"
+  [ -e "$sudoers" ] || die "$sudoers not found. Is sudo installed?"
+  if grep -Eq '^[#@]includedir[[:space:]]+/etc/sudoers.d' "$sudoers"; then
+    mkdir -p "$ROOT/etc/sudoers.d"
+    echo "$rule" > "$ROOT/etc/sudoers.d/90-$user"
+    chmod 440 "$ROOT/etc/sudoers.d/90-$user"
+    visudo -cf "$ROOT/etc/sudoers.d/90-$user" > /dev/null || { rm -f "$ROOT/etc/sudoers.d/90-$user"; die "the sudo rule did not validate and was removed."; }
+  else
+    backup "$sudoers"
+    echo "$rule" >> "$sudoers"
+    visudo -cf "$sudoers" > /dev/null || die "sudoers is invalid now. Restore $sudoers.pre-soplos."
+  fi
+  echo "User $user can use sudo."
+}
+
+action_lang() {
+  local loc sh=$ROOT/etc/profile.d/lang.sh csh=$ROOT/etc/profile.d/lang.csh done=0
+  loc=$(ask "Locale [es_ES.UTF-8]: " es_ES.UTF-8)
+  [[ $loc =~ ^[A-Za-z_]+(\.[A-Za-z0-9-]+)?$ ]] || die "invalid locale."
+  if [ -e "$sh" ] && grep -Eq '^[[:space:]]*export LANG=' "$sh"; then
+    backup "$sh"
+    sed -i "s/^\([[:space:]]*export LANG=\).*/\1$loc/" "$sh"
+    done=1
+  fi
+  if [ -e "$csh" ] && grep -Eq '^[[:space:]]*setenv LANG ' "$csh"; then
+    backup "$csh"
+    sed -i "s/^\([[:space:]]*setenv LANG \).*/\1$loc/" "$csh"
+    done=1
+  fi
+  [ "$done" -eq 1 ] || die "no LANG line found in $sh. Edit it by hand."
+  echo "Language set to $loc. Log out and in to apply it."
+}
+
+action_resolution() {
+  local mode conf=$ROOT/etc/X11/xorg.conf.d/10-monitor.conf
+  mode=$(ask "Resolution [1920x1080]: " 1920x1080)
+  [[ $mode =~ ^[0-9]+x[0-9]+$ ]] || die "invalid resolution."
+  mkdir -p "$(dirname "$conf")"
+  backup "$conf"
+  cat > "$conf" << EOF
+Section "Monitor"
+    Identifier "Monitor0"
+    Option "PreferredMode" "$mode"
+EndSection
+
+Section "Screen"
+    Identifier "Screen0"
+    Monitor "Monitor0"
+    DefaultDepth 24
+    SubSection "Display"
+        Depth 24
+        Modes "$mode"
+    EndSubSection
+EndSection
+EOF
+  echo "Wrote $conf. It applies to X11 sessions after a restart."
+}
+
+# Runs as the target user: renames the English folders to the Spanish ones
+# and lets xdg-user-dirs record the new names. The Spanish names are data.
+userdirs_script() {
+  cat << 'EOF'
+cd "$HOME" || exit 1
+for pair in Desktop:Escritorio Documents:Documentos Downloads:Descargas \
+            Music:Música Pictures:Imágenes Videos:Vídeos \
+            Templates:Plantillas Public:Público; do
+  en=${pair%%:*}; es=${pair#*:}
+  if [ -d "$en" ] && [ ! -e "$es" ]; then
+    mv "$en" "$es"
+  elif [ -d "$en" ] && [ -d "$es" ]; then
+    rmdir "$es" 2> /dev/null && mv "$en" "$es"
+  fi
+done
+LC_ALL=es_ES.UTF-8 xdg-user-dirs-update --force
+EOF
+}
+
+action_userdirs() {
+  local user
+  user=$(ask "User to rename the folders of: ")
+  id "$user" > /dev/null 2>&1 || die "user $user does not exist."
+  userdirs_script | su - "$user" -c "bash -s" || die "could not rename the folders."
+  echo "Folders renamed for $user. They must log out and in."
+}
+
+case "${1:-}" in
+  runlevel4)  action_runlevel4 ;;
+  updates)    action_updates ;;
+  user)       action_user ;;
+  lang)       action_lang ;;
+  resolution) action_resolution ;;
+  userdirs)   action_userdirs ;;
+  *) sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

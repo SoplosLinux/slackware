@@ -14,20 +14,33 @@ wget https://raw.githubusercontent.com/SoplosLinux/slackware/main/soplos-menu.sh
 bash soplos-menu.sh
 ```
 
-The menu offers: a preview of the debloat, the debloat itself, the library
-scanner, the Plymouth installer for Slackware 15 or 16 (detected from
-`/etc/slackware-version`), the GRUB menu regeneration and its kernel-update
-hook, the kernel 6.8.9 build and the Plymouth tutorial. Nothing is installed
-until you choose an option and confirm it.
+The menu has these entries; the first four open a submenu:
+
+| Entry | What it does |
+|---|---|
+| Clean Plasma | Preview or run the debloat, with or without the optional sections |
+| First steps | Runlevel 4, mirror and updates, user with sudo, language, screen resolution, Spanish user folders |
+| Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
+| GRUB | Regenerate the menu now, or install the hook that does it on kernel updates (Slackware 16) |
+| Plymouth boot splash | Installer for Slackware 15 or 16, detected from `/etc/slackware-version` |
+| Library scanner | Report of library packages nobody uses |
+| Kernel 6.8.9 | The build from the video (Slackware 15) |
+| Tutorial | The Plymouth tutorial, in your language |
+
+Nothing is installed until you choose an option and confirm it.
+
+Flatpak and Discover come from AlienBOB's ready-made packages
+(`slackware.uk/people/alien/slackbuilds`), checked against their MD5 file.
+Plymouth and open-vm-tools are built from SlackBuilds.org with sbopkg.
 
 ## Layout
 
 | Folder | Contents |
 |---|---|
-| `15/` | Slackware 15.0: Plymouth files at their install paths, and its setup scripts (Plymouth installer, kernel 6.8.9, Discover with Flatpak, GRUB update) |
+| `15/` | Slackware 15.0: Plymouth files at their install paths, and its setup scripts (Plymouth installer, kernel 6.8.9, GRUB update) |
 | `16/` | Slackware 16 (-current): patches for `rc.S` and `rc.6`, a geninitrd hook that regenerates the GRUB menu on kernel installs, and its Plymouth installer. See `16/README.txt` |
 | `soplos-menu.sh` | The menu described above |
-| `scripts/` | Scripts valid for both releases: `setup.debloat` (clean Plasma install) and `setup.orphans` (read-only library scanner) |
+| `scripts/` | Scripts valid for both releases: `setup.debloat` (clean Plasma install), `setup.orphans` (read-only library scanner), `setup.firststeps` and `setup.software` |
 | `plasma-splash/` | KDE Plasma look-and-feel splash screen (Qt5, not tested on Plasma 6) |
 | `docs/` | Plymouth tutorial in English and Spanish, first steps, kernel build, SDDM |
 | `artwork/` | Wallpapers (JPG), logos and a Plymouth screenshot |

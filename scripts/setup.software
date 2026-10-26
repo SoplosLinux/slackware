@@ -1,0 +1,181 @@
+#!/bin/bash
+#BLURB="Install sbopkg, Plymouth, open-vm-tools, Flatpak and Discover"
+#
+# Script: setup.software
+# Description: Installs software that Slackware does not ship. Plymouth and
+#              open-vm-tools are built with sbopkg from SlackBuilds.org.
+#              Flatpak and KDE Discover are the ready-made packages of
+#              AlienBOB, which are not in Slackware or in SlackBuilds.org.
+# Author: [SoplosLinux]
+# Version: 1.1
+#
+# Status: not tested on a real Slackware yet. The SlackBuilds.org packages are
+# written for Slackware 15.0 and may fail to build on -current. sbopkg uses
+# the 15.0 repository by default, which is also what Slackware 16 needs.
+# AlienBOB's packages were built against Slackware-current of May and June
+# 2026; if -current moved on since then, a library may not match.
+#
+# Usage: setup.software ACTION
+#   sbopkg         install sbopkg and download the SlackBuilds.org index
+#   plymouth       build and install Plymouth (and dracut on Slackware 15)
+#   open-vm-tools  build and install open-vm-tools for VMware guests
+#   flatpak        install Flatpak (AlienBOB) and add the Flathub repository
+#   discover       install KDE Discover (AlienBOB) together with Flatpak
+
+set -u
+ROOT=${ROOT:-}
+PKGDIR=${PKGDIR:-$ROOT/var/log/packages}
+SBOPKG_VERSION=0.38.3
+SBOPKG_URL=https://github.com/sbopkg/sbopkg/releases/download/$SBOPKG_VERSION/sbopkg-$SBOPKG_VERSION-noarch-1_wsr.tgz
+FLATHUB_URL=https://dl.flathub.org/repo/flathub.flatpakrepo
+ALIEN=${ALIEN:-https://slackware.uk/people/alien/slackbuilds}
+
+die() { echo "Error: $*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "this script must be run as root."
+
+release() {
+  sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' "$ROOT/etc/slackware-version" 2> /dev/null | head -n 1
+}
+
+download() {
+  if command -v curl > /dev/null 2>&1; then
+    curl -fsSL -o "$2" "$1"
+  elif command -v wget > /dev/null 2>&1; then
+    wget -q -O "$2" "$1"
+  else
+    die "neither curl nor wget is installed."
+  fi
+}
+
+is_installed() {
+  ls "$PKGDIR/$1"-[0-9]* > /dev/null 2>&1
+}
+
+install_sbopkg() {
+  if command -v sbopkg > /dev/null 2>&1; then
+    echo "sbopkg is already installed."
+  else
+    local tmp
+    tmp=$(mktemp -d)
+    echo "Downloading sbopkg $SBOPKG_VERSION..."
+    download "$SBOPKG_URL" "$tmp/sbopkg.tgz" || die "could not download $SBOPKG_URL"
+    installpkg "$tmp/sbopkg.tgz" || die "installpkg failed."
+    rm -rf "$tmp"
+  fi
+  if [ ! -d "$ROOT/var/lib/sbopkg/SBo/15.0" ]; then
+    echo "Downloading the SlackBuilds.org index (repository 15.0)..."
+    sbopkg -r || die "sbopkg could not sync the repository."
+  fi
+}
+
+# sbo_install PACKAGE...  builds and installs them with their dependencies
+sbo_install() {
+  local p failed=()
+  install_sbopkg
+  sbopkg -B -e stop -i "$*" || echo "sbopkg reported an error, checking what was installed."
+  for p in "$@"; do
+    is_installed "$p" || failed+=("$p")
+  done
+  if [ "${#failed[@]}" -gt 0 ]; then
+    die "not installed: ${failed[*]}. Read the sbopkg log in /var/log/sbopkg/."
+  fi
+}
+
+action_plymouth() {
+  case "$(release)" in
+    15) sbo_install plymouth dracut ;;
+    *)  sbo_install plymouth ;;
+  esac
+  echo "Plymouth installed. Now install the splash from the Plymouth option of the menu."
+}
+
+action_open_vm_tools() {
+  sbo_install open-vm-tools
+  command -v vmtoolsd > /dev/null 2>&1 || die "vmtoolsd not found after the install."
+
+  # System daemon at boot
+  local rclocal=$ROOT/etc/rc.d/rc.local
+  mkdir -p "$(dirname "$rclocal")"
+  touch "$rclocal"
+  if ! grep -q 'vmtoolsd -b' "$rclocal"; then
+    {
+      echo
+      echo "# VMware guest services"
+      echo "[ -x /usr/bin/vmtoolsd ] && /usr/bin/vmtoolsd -b /var/run/vmtoolsd.pid"
+    } >> "$rclocal"
+  fi
+  chmod 755 "$rclocal"
+
+  # User process (clipboard, drag and drop, display resize) at login
+  local autostart=$ROOT/etc/xdg/autostart/vmware-user.desktop
+  if [ ! -e "$autostart" ]; then
+    mkdir -p "$(dirname "$autostart")"
+    cat > "$autostart" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=VMware User Process
+Exec=vmtoolsd -n vmusr
+X-KDE-autostart-phase=1
+EOF
+  fi
+  echo "open-vm-tools installed. Reboot, or log out and in, to use the clipboard."
+}
+
+# alien_latest NAME  prints the file name of the newest AlienBOB package for -current
+alien_latest() {
+  local index
+  index=$(mktemp)
+  download "$ALIEN/$1/pkg64/current/" "$index" || { rm -f "$index"; return 1; }
+  grep -oE "href=\"$1-[0-9][^\"/]*-x86_64-[0-9]+alien\.txz\"" "$index" | sed 's/^href="//; s/"$//' | sort -V | tail -n 1
+  rm -f "$index"
+}
+
+# alien_install NAME...  downloads, verifies and installs AlienBOB packages
+alien_install() {
+  local tmp name file files=()
+  tmp=$(mktemp -d)
+  for name in "$@"; do
+    file=$(alien_latest "$name")
+    [ -n "$file" ] || die "$name was not found in AlienBOB's current tree."
+    echo "Downloading $file..."
+    download "$ALIEN/$name/pkg64/current/$file" "$tmp/$file" || die "could not download $file"
+    download "$ALIEN/$name/pkg64/current/$file.md5" "$tmp/$file.md5" || die "could not download the checksum of $file"
+    (cd "$tmp" && md5sum -c "$file.md5" > /dev/null) || die "the checksum of $file does not match."
+    files+=("$tmp/$file")
+  done
+  upgradepkg --install-new "${files[@]}" || die "upgradepkg failed."
+  rm -rf "$tmp"
+}
+
+# Flatpak needs appstream and the GTK portal, which Slackware itself ships
+require_slackware_deps() {
+  local p
+  for p in appstream xdg-desktop-portal-gtk; do
+    is_installed "$p" || die "$p is not installed. It comes with Slackware, install it with slackpkg."
+  done
+}
+
+action_flatpak() {
+  require_slackware_deps
+  alien_install bubblewrap libostree xdg-dbus-proxy flatpak
+  if command -v flatpak > /dev/null 2>&1; then
+    flatpak remote-add --if-not-exists flathub "$FLATHUB_URL" || echo "Could not add Flathub now, try again with a network connection."
+  fi
+  echo "Flatpak installed. Log out and in so the applications appear in the menu."
+}
+
+action_discover() {
+  action_flatpak
+  alien_install discover
+  echo "Discover installed. It starts from the application menu; if it shows no Flatpak sources, log out and in."
+}
+
+case "${1:-}" in
+  sbopkg)        install_sbopkg ;;
+  plymouth)      action_plymouth ;;
+  open-vm-tools) action_open_vm_tools ;;
+  flatpak)       action_flatpak ;;
+  discover)      action_discover ;;
+  *) sed -n '/^# Usage/,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
