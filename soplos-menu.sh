@@ -84,6 +84,8 @@ tr_add c2 "Preview, including the optional sections" "Ver qué se quitaría, con
 tr_add c3 "Remove the unneeded packages" "Quitar los paquetes sobrantes"
 tr_add c4 "Remove them, including the optional sections" "Quitarlos, con las secciones opcionales"
 tr_add c5 "List the sections" "Listar las secciones"
+tr_add c6 "Undo: bring back what a section removed" "Deshacer: recuperar lo que quitó una sección"
+tr_add c6_ask "Section to bring back (names below, or all): " "Sección que recuperar (nombres abajo, o all): "
 
 tr_add f_title "First steps" "Primeros pasos"
 tr_add f_text "Usual steps after installing Slackware" "Pasos habituales tras instalar Slackware"
@@ -241,9 +243,13 @@ menu_clean() {
   local c
   while true; do
     c=$(choose "$(t c_title)" "$(t c_text)" \
-      1 "$(t c1)" 2 "$(t c2)" 3 "$(t c3)" 4 "$(t c4)" 5 "$(t c5)" 0 "$(t back)")
+      1 "$(t c1)" 2 "$(t c2)" 3 "$(t c3)" 4 "$(t c4)" 5 "$(t c5)" 6 "$(t c6)" 0 "$(t back)")
     clear
     case "$c" in
+      6)
+        echo "  $(grep -ho '^\[[a-z0-9-]*\]' /var/log/setup.debloat.log 2> /dev/null | tr -d '[]' | sort -u | tr '\n' ' ')"
+        read -r -p "$(t c6_ask)" sec <"$TTY"
+        [ -n "$sec" ] && run scripts/setup.debloat -u "$sec" ;;
       1) bash "$REPO/scripts/setup.debloat" -n -v | ${PAGER:-less}; pause ;;
       2) bash "$REPO/scripts/setup.debloat" -n -v -a | ${PAGER:-less}; pause ;;
       3) run scripts/setup.debloat ;;

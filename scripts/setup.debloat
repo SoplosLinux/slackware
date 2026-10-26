@@ -25,6 +25,8 @@
 #   -o NAME    also apply one optional section (can be repeated)
 #   -x NAME    skip one section (can be repeated)
 #   -f         skip the dependency check (not recommended)
+#   -u NAME    undo: reinstall with slackpkg what the log says a section removed
+#              (NAME is a section such as qt5, or "all"); combine with -n to preview
 #   -l         list the sections and exit
 #   -h         show this help
 #
@@ -36,7 +38,7 @@
 PKGDIR=${PKGDIR:-/var/log/packages}
 LOG=${LOG:-/var/log/setup.debloat.log}
 DEPS=${DEPS:-$(cd "$(dirname "$0")/.." 2> /dev/null && pwd)/data/deps.tsv}
-DRY=0 VERBOSE=0 ASSUME_YES=0 ALL=0 LIST=0 FORCE=0
+DRY=0 VERBOSE=0 ASSUME_YES=0 ALL=0 LIST=0 FORCE=0 UNDO=
 WITH=" " WITHOUT=" "
 
 # Packages that must never be removed, even if a section lists them by mistake
@@ -95,8 +97,9 @@ add_legacy() {
 # list, so the check keeps Qt5 and says why.
 QT5_TOLERATED=" avahi fcitx5-qt futuresql libdbusmenu-qt libportal okteta oxygen phonon pinentry polkit-qt-1 poppler qca ssr "
 
-while getopts "nvyao:x:flh" opt; do
+while getopts "nvyao:x:fu:lh" opt; do
   case "$opt" in
+    u) UNDO=$OPTARG ;;
     n) DRY=1 ;;
     v) VERBOSE=1 ;;
     y) ASSUME_YES=1 ;;
@@ -284,6 +287,63 @@ done < <(awk '
     print name "\t" int(v)
   }
 ' "$PKGDIR"/* 2>/dev/null | awk -F'\t' '{k[$1]=($2>k[$1]?$2:k[$1])} END{for(n in k) print n "\t" k[n]}')
+
+# Undo: reinstall what the log says was removed, with slackpkg
+if [ -n "$UNDO" ]; then
+  [ -r "$LOG" ] || { echo "No log at $LOG: there is nothing to restore."; exit 1; }
+  command -v slackpkg > /dev/null 2>&1 || { echo "slackpkg is required to restore packages."; exit 1; }
+  pk=""; files=""
+  while IFS= read -r line; do
+    case "$line" in "["*"] "*) ;; *) continue ;; esac
+    sec=${line%%]*}; sec=${sec#[}
+    names=${line#*] }
+    kind=pkg
+    case "$sec" in *" hidden") sec=${sec% hidden}; kind=file ;; esac
+    [ "$UNDO" = "all" ] || [ "$UNDO" = "$sec" ] || continue
+    if [ "$kind" = "file" ]; then files+=" $names"; else pk+=" $names"; fi
+  done < "$LOG"
+  todo=""
+  for p in $(printf '%s\n' $pk | sort -u); do
+    [ -n "${INSTALLED[$p]:-}" ] || todo+=" $p"
+  done
+  owners=""
+  for f in $(printf '%s\n' $files | sort -u); do
+    for o in $(grep -l "usr/share/applications/$f" "$PKGDIR"/* 2> /dev/null | sed 's#.*/##; s/-[^-]*-[^-]*-[^-]*$//'); do
+      case " $owners " in *" $o "*) ;; *) owners+=" $o" ;; esac
+    done
+  done
+  if [ -z "$todo$owners" ]; then
+    echo "Nothing to restore for '$UNDO'."
+    exit 0
+  fi
+  echo
+  echo "  Reinstall ($(echo $todo | wc -w) packages): $(echo $todo | cut -c1-200)"
+  [ -n "$owners" ] && echo "  Reinstall to bring back menu entries: $owners"
+  if [ "$DRY" -eq 1 ]; then echo; echo "Dry run, nothing was restored."; exit 0; fi
+  if [ "$ASSUME_YES" -eq 0 ]; then
+    read -r -p "Restore these now? [y/N] " answer </dev/tty
+    [ "$answer" = "y" ] || { echo "Cancelled."; exit 0; }
+  fi
+  echo "$(date) restoring section $UNDO" >> "$LOG"
+  # slackpkg needs a mirror; set the official one if none is active. This does
+  # not upgrade anything: only update (the package lists) and install run below.
+  MIRRORS=${MIRRORS:-/etc/slackpkg/mirrors}
+  if [ -e "$MIRRORS" ] && ! grep -q '^[^#[:space:]]' "$MIRRORS"; then
+    cp -p "$MIRRORS" "$MIRRORS.pre-soplos" 2> /dev/null
+    if grep -q '^Slackware 15' /etc/slackware-version 2> /dev/null; then
+      echo "https://mirrors.slackware.com/slackware/slackware64-15.0/" >> "$MIRRORS"
+    else
+      echo "https://mirrors.slackware.com/slackware/slackware64-current/" >> "$MIRRORS"
+    fi
+    echo "  No mirror was set, using the official one."
+  fi
+  slackpkg -batch=on -default_answer=y update gpg
+  slackpkg -batch=on -default_answer=y update
+  [ -n "$todo" ] && slackpkg -batch=on -default_answer=y install $todo
+  [ -n "$owners" ] && slackpkg -batch=on -default_answer=y reinstall $owners
+  echo "Done. Log out and back in to see the change."
+  exit 0
+fi
 
 # mariadb is only needed by Akonadi: keep it if the PIM stack stays
 pim_stays=0

@@ -27,8 +27,43 @@ show() {
 }
 
 say "== 1. Plasma processes"
-for p in kwin_x11 kwin_wayland plasmashell kglobalacceld kded6 kactivitymanagerd; do
+for p in kwin_x11 kwin_wayland plasmashell kglobalacceld kded6 kactivitymanagerd ksmserver; do
   if pgrep -x "$p" > /dev/null 2>&1; then say "  running:     $p"; else say "  NOT running: $p"; fi
+done
+say "  session processes, with how long each has been running:"
+ps -eo pid,user,etime,args 2> /dev/null | grep -E 'ksm|kded|kwin|plasma|ksplash|kglobal|kactiv|dbus-daemon|startplasma|baloo|kscreen|xdg-desktop|polkit|sddm' \
+  | grep -v grep | cut -c1-118 | sed 's/^/    /' | show 24
+
+say
+say "== 1b. Names registered on the user's session D-Bus"
+SESSPID=$(pgrep -x plasmashell 2> /dev/null | head -n 1)
+if [ -n "$SESSPID" ] && [ -r "/proc/$SESSPID/environ" ] && command -v dbus-send > /dev/null 2>&1; then
+  SESSUSER=$(ps -o user= -p "$SESSPID" | tr -d ' ')
+  SESSADDR=$(tr '\0' '\n' < "/proc/$SESSPID/environ" | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p')
+  names=$(su -s /bin/sh "$SESSUSER" -c "DBUS_SESSION_BUS_ADDRESS='$SESSADDR' dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames" 2>&1)
+  if echo "$names" | grep -q 'string'; then
+    for n in org.kde.kglobalaccel org.kde.KWin org.kde.plasmashell org.kde.ActivityManager org.kde.KSplash org.freedesktop.Notifications org.kde.StatusNotifierWatcher org.kde.kded6 org.kde.ksmserver; do
+      if echo "$names" | grep -q "\"$n\""; then say "  registered:     $n"; else say "  NOT registered: $n"; fi
+    done
+    say "  all org.kde names:"
+    echo "$names" | sed -n 's/.*string "\(org\.kde\.[^"]*\)".*/\1/p' | sort -u | sed 's/^/    /' | show 20
+  else
+    say "  could not read the session bus: $(echo "$names" | head -n 2 | tr '\n' ' ' | cut -c1-110)"
+  fi
+else
+  say "  plasmashell is not running or dbus-send is missing"
+fi
+
+say
+say "== 1c. Autostart entries overridden in the user configuration"
+for h in $HOMES; do
+  if ls "$h"/.config/autostart/* > /dev/null 2>&1; then
+    for f in "$h"/.config/autostart/*; do
+      say "  $f: $(grep -hE '^(Hidden|X-KDE-autostart-enabled|Exec)=' "$f" 2> /dev/null | tr '\n' ' ' | cut -c1-90)"
+    done
+  else
+    say "  $h: none"
+  fi
 done
 
 say

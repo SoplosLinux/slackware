@@ -72,6 +72,11 @@ libraries that cannot be removed (Qt Designer and Assistant, GTK Demo, Vulkan
 Caps Viewer, Avahi browsers...). An upgrade of the package that owns an entry
 puts it back; run the script again.
 
+Everything it removes is written to `/var/log/setup.debloat.log`, and it can be
+brought back by section: `setup.debloat -u qt5` (or `-u all`, add `-n` to
+preview) reinstalls what that section removed with slackpkg, which only needs
+`update` and `install`, never `upgrade-all`. The menu has the same option.
+
 Slackware does not track dependencies, so the script does it itself. It reads
 `data/deps.tsv` and keeps any package that an installed package that stays
 still needs: for example `guile` because `make` links to it, or `gcc-gfortran`
