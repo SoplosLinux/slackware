@@ -157,9 +157,12 @@ tr_add s5_confirm "Install KDE Discover and Flatpak from AlienBOB's packages?\n\
 tr_add s6 "Soplos Plasma splash screen (KDE login animation)" "Pantalla de bienvenida Soplos para Plasma (animación de inicio de KDE)"
 tr_add s6_confirm "Install the Soplos Slackware Plasma splash screen?\n\nCopies the theme to /usr/share/plasma/look-and-feel/\nand sets it as the default for all users." "¿Instalar la pantalla de bienvenida Soplos para Plasma?\n\nCopia el tema en /usr/share/plasma/look-and-feel/\ny lo establece como predeterminado para todos los usuarios."
 tr_add s6_done "Plasma splash screen installed. It will be used on the next login." "Pantalla de bienvenida instalada. Se usará en el próximo inicio de sesión."
-tr_add s7 "Slackware icons for the application menu button" "Iconos de Slackware para el botón del menú de aplicaciones"
-tr_add s7_confirm "Install the Slackware menu icons into the system?\n\nCopies the logos to /usr/share/icons/hicolor/ and /usr/share/pixmaps/\nso they appear directly in the icon chooser when configuring the launcher button." "¿Instalar los iconos de Slackware en el sistema?\n\nCopia los logos en /usr/share/icons/hicolor/ y /usr/share/pixmaps/\npara que aparezcan directamente en el selector de iconos al configurar el botón del menú."
-tr_add s7_done "Icons installed. Right-click the application menu button → Configure → change icon (search: slackware)." "Iconos instalados. Clic derecho en el botón del menú → Configurar → cambiar icono (busca: slackware)."
+tr_add s7 "Soplos Slackware wallpapers" "Fondos de pantalla de Slackware Soplos"
+tr_add s7_confirm "Install the Slackware wallpapers into /usr/share/wallpapers/?" "¿Instalar los fondos de pantalla de Slackware en /usr/share/wallpapers/?"
+tr_add s7_done "Wallpapers installed to /usr/share/wallpapers/." "Fondos de pantalla instalados en /usr/share/wallpapers/."
+tr_add s8 "Slackware icons for the application menu button" "Iconos de Slackware para el botón del menú de aplicaciones"
+tr_add s8_confirm "Install the Slackware menu icons into the system?\n\nCopies the logos to /usr/share/icons/hicolor/ and /usr/share/pixmaps/\nso they appear directly in the icon chooser when configuring the launcher button." "¿Instalar los iconos de Slackware en el sistema?\n\nCopia los logos en /usr/share/icons/hicolor/ y /usr/share/pixmaps/\npara que aparezcan directamente en el selector de iconos al configurar el botón del menú."
+tr_add s8_done "Icons installed. Right-click the application menu button → Configure → change icon (search: slackware)." "Iconos instalados. Clic derecho en el botón del menú → Configurar → cambiar icono (busca: slackware)."
 
 tr_add g_title "GRUB" "GRUB"
 tr_add g_text "Boot menu" "Menú de arranque"
@@ -495,7 +498,7 @@ menu_software() {
   local c
   while true; do
     c=$(choose "$(t s_title)" "$(t s_text)" \
-      1 "$(t s1)" 2 "$(t s2)" 3 "$(t s3)" 4 "$(t s4)" 5 "$(t s5)" 6 "$(t s6)" 7 "$(t s7)" 0 "$(t back)")
+      1 "$(t s1)" 2 "$(t s2)" 3 "$(t s3)" 4 "$(t s4)" 5 "$(t s5)" 6 "$(t s6)" 7 "$(t s7)" 8 "$(t s8)" 0 "$(t back)")
     clear
     case "$c" in
       1) run scripts/setup.software sbopkg ;;
@@ -504,7 +507,8 @@ menu_software() {
       4) confirm s4_confirm && run scripts/setup.software flatpak ;;
       5) confirm s5_confirm && run scripts/setup.software discover ;;
       6) confirm s6_confirm && install_plasma_splash ;;
-      7) confirm s7_confirm && install_soplos_icons ;;
+      7) confirm s7_confirm && install_soplos_wallpapers ;;
+      8) confirm s8_confirm && install_soplos_icons ;;
       0|"") return ;;
     esac
   done
@@ -515,7 +519,6 @@ install_plasma_splash() {
   local kdeglobals=/etc/xdg/kdeglobals
   local raw_base="https://raw.githubusercontent.com/$OWNER_REPO/$REF"
   local splash_local="$REPO/plasma-splash/Slack"
-  local wp_local="$REPO/artwork/wallpapers"
 
   echo "Installing Soplos Plasma splash screen..."
   mkdir -p "$dest/contents/previews" "$dest/contents/splash/images"
@@ -545,34 +548,6 @@ install_plasma_splash() {
   fi
   echo "Splash screen installed to $dest."
 
-  # Install wallpapers
-  echo "Installing wallpapers..."
-  local wp_names=("Wallpaper 01" "Wallpaper 02" "Wallpaper 03" "Wallpaper 04")
-  for wp in "${wp_names[@]}"; do
-    local wpdest="/usr/share/wallpapers/Soplos $wp"
-    mkdir -p "$wpdest/contents/images"
-    local wpfile="$wp.jpg"
-    if [ -f "$wp_local/$wpfile" ]; then
-      cp "$wp_local/$wpfile" "$wpdest/contents/images/$wpfile"
-    else
-      local wp_url="$raw_base/artwork/wallpapers/$(echo "$wpfile" | sed 's/ /%20/g')"
-      echo "  Downloading $wpfile..."
-      download "$wp_url" "$wpdest/contents/images/$wpfile" || echo "Warning: could not download $wpfile"
-    fi
-    local wpid
-    wpid=$(printf '%s' "soplos-$wp" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-    cat > "$wpdest/metadata.json" << EOF
-{
-    "KPlugin": {
-        "Name": "Soplos $wp",
-        "Id": "$wpid",
-        "License": "GPLv2+"
-    }
-}
-EOF
-    echo "  Wallpaper installed: Soplos $wp"
-  done
-
   # Set splash as system-wide default in /etc/xdg/kdeglobals
   mkdir -p "$(dirname "$kdeglobals")"
   if [ -f "$kdeglobals" ] && grep -q '^LookAndFeelPackage=' "$kdeglobals"; then
@@ -590,6 +565,34 @@ EOF
   fi
 
   say s6_done
+  pause
+}
+
+install_soplos_wallpapers() {
+  local dest=/usr/share/wallpapers
+  local raw_base="https://raw.githubusercontent.com/$OWNER_REPO/$REF"
+  local wp_local="$REPO/artwork/wallpapers"
+
+  echo "Installing wallpapers into $dest..."
+  mkdir -p "$dest"
+
+  # Clean up any previously created broken package subdirectories
+  rm -rf "$dest"/Soplos\ Wallpaper* "$dest"/Soplos-Wallpaper*
+
+  local wp_names=("Wallpaper 01.jpg" "Wallpaper 02.jpg" "Wallpaper 03.jpg" "Wallpaper 04.jpg")
+  for wp in "${wp_names[@]}"; do
+    local out_name="Soplos-$wp"
+    if [ -f "$wp_local/$wp" ]; then
+      cp "$wp_local/$wp" "$dest/$out_name"
+    else
+      local wp_url="$raw_base/artwork/wallpapers/$(echo "$wp" | sed 's/ /%20/g')"
+      echo "  Downloading $wp..."
+      download "$wp_url" "$dest/$out_name" || echo "Warning: could not download $wp"
+    fi
+    echo "  Installed: $dest/$out_name"
+  done
+
+  say s7_done
   pause
 }
 
@@ -650,7 +653,7 @@ install_soplos_icons() {
 
   echo "Icons installed to $hicolor and $pixmaps."
   echo "Available names in icon chooser: slackware, slackware-logo, start-here-slackware, distributor-logo-slackware"
-  say s7_done
+  say s8_done
   pause
 }
 
