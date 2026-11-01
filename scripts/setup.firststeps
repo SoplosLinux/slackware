@@ -298,44 +298,50 @@ EOF
   chmod 755 "$xkb_csh"
   echo "Wrote $xkb_sh and $xkb_csh (Wayland / libxkbcommon defaults)."
 
-  # 3. KDE Plasma (Wayland and X11): global /etc/xdg/kcminputrc and user configs
-  conf_xdg=$ROOT/etc/xdg/kcminputrc
+  # 3. KDE Plasma (Wayland and X11): /etc/xdg/kxkbrc and ~/.config/kxkbrc
+  conf_xdg=$ROOT/etc/xdg/kxkbrc
   mkdir -p "$(dirname "$conf_xdg")"
   backup "$conf_xdg"
-  if [ -f "$conf_xdg" ] && grep -q '^\[Keyboard\]' "$conf_xdg"; then
-    sed -i '/^\[Keyboard\]/,/^\[/{s/^LayoutList=.*/LayoutList='"$layout"'/; s/^Use=.*/Use=true/}' "$conf_xdg"
+  if [ -f "$conf_xdg" ] && grep -q '^\[Layout\]' "$conf_xdg"; then
+    sed -i '/^\[Layout\]/,/^\[/{s/^LayoutList=.*/LayoutList='"$layout"'/; s/^Use=.*/Use=true/}' "$conf_xdg"
   else
     cat >> "$conf_xdg" << EOF
 
-[Keyboard]
+[Layout]
+DisplayNames=
 LayoutList=$layout
-LayoutLoopCount=-1
 Model=pc105
 Options=
-SwitchMode=Global
+ResetOldOptions=true
 Use=true
 VariantList=
 EOF
   fi
-  echo "Wrote global KDE Plasma configuration in $conf_xdg."
+  echo "Wrote global KDE Plasma keyboard configuration in $conf_xdg."
 
-  # Update kcminputrc for existing regular users
-  for u in $(regular_users); do
+  # Update kxkbrc for existing regular users and trigger live reload
+  local all_users
+  all_users=$(regular_users)
+  [ -n "${SUDO_USER:-}" ] && all_users="$all_users $SUDO_USER"
+  all_users=$(echo "$all_users" | tr ' ' '\n' | sort -u)
+
+  for u in $all_users; do
+    [ -n "$u" ] || continue
     home=$(awk -F: -v u="$u" '$1 == u {print $6}' "$ROOT/etc/passwd")
-    local uconf="$ROOT$home/.config/kcminputrc"
+    local uconf="$ROOT$home/.config/kxkbrc"
     if [ -d "$ROOT$home/.config" ]; then
       backup "$uconf"
-      if [ -f "$uconf" ] && grep -q '^\[Keyboard\]' "$uconf"; then
-        sed -i '/^\[Keyboard\]/,/^\[/{s/^LayoutList=.*/LayoutList='"$layout"'/; s/^Use=.*/Use=true/}' "$uconf"
+      if [ -f "$uconf" ] && grep -q '^\[Layout\]' "$uconf"; then
+        sed -i '/^\[Layout\]/,/^\[/{s/^LayoutList=.*/LayoutList='"$layout"'/; s/^Use=.*/Use=true/}' "$uconf"
       else
         cat >> "$uconf" << EOF
 
-[Keyboard]
+[Layout]
+DisplayNames=
 LayoutList=$layout
-LayoutLoopCount=-1
 Model=pc105
 Options=
-SwitchMode=Global
+ResetOldOptions=true
 Use=true
 VariantList=
 EOF
@@ -343,6 +349,18 @@ EOF
       local ug
       ug=$(id -g "$u" 2>/dev/null || echo 1000)
       chown "$u:$ug" "$uconf" 2>/dev/null || true
+
+      # Reload KDE keyboard daemon in active session if running
+      local uid
+      uid=$(id -u "$u" 2>/dev/null || true)
+      if [ -n "$uid" ] && [ -S "/run/user/$uid/bus" ]; then
+        su - "$u" -c "export XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus; \
+          kwriteconfig6 --file kxkbrc --group Layout --key LayoutList \"$layout\" --notify 2>/dev/null || \
+          kwriteconfig5 --file kxkbrc --group Layout --key LayoutList \"$layout\" --notify 2>/dev/null || true; \
+          qdbus org.kde.keyboard /Layouts reconfigure 2>/dev/null || \
+          qdbus6 org.kde.keyboard /Layouts reconfigure 2>/dev/null || \
+          qdbus6 org.kde.keyboard /Layouts setLayout 0 2>/dev/null || true" 2>/dev/null || true
+      fi
     fi
   done
 
@@ -411,6 +429,31 @@ for pair in Desktop:Escritorio Documents:Documentos Downloads:Descargas \
   fi
 done
 LC_ALL=es_ES.UTF-8 xdg-user-dirs-update --force
+
+# Update Dolphin and KDE places / bookmarks (user-places.xbel)
+places="$HOME/.local/share/user-places.xbel"
+if [ -f "$places" ]; then
+  for pair in Desktop:Escritorio Documents:Documentos Downloads:Descargas \
+              Music:Música Pictures:Imágenes Videos:Vídeos \
+              Templates:Plantillas Public:Público; do
+    en=${pair%%:*}; es=${pair#*:}
+    sed -i "s#href=\"file://$HOME/$en\"#href=\"file://$HOME/$es\"#g" "$places"
+    sed -i "s#href=\"file://$HOME/$en/\"#href=\"file://$HOME/$es/\"#g" "$places"
+    sed -i "s#<title>$en</title>#<title>$es</title>#g" "$places"
+  done
+fi
+
+for bfile in "$HOME/.local/share/dolphin/bookmarks.xml" "$HOME/.local/share/kfile/bookmarks.xml"; do
+  if [ -f "$bfile" ]; then
+    for pair in Desktop:Escritorio Documents:Documentos Downloads:Descargas \
+                Music:Música Pictures:Imágenes Videos:Vídeos; do
+      en=${pair%%:*}; es=${pair#*:}
+      sed -i "s#href=\"file://$HOME/$en\"#href=\"file://$HOME/$es\"#g" "$bfile"
+      sed -i "s#href=\"file://$HOME/$en/\"#href=\"file://$HOME/$es/\"#g" "$bfile"
+      sed -i "s#<title>$en</title>#<title>$es</title>#g" "$bfile"
+    done
+  fi
+done
 EOF
 }
 

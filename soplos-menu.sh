@@ -283,10 +283,9 @@ pause() {
 
 say() {
   if use_dialog; then
-    dialog --clear --ok-label "$(t ok)" --msgbox "$(t "$1")" 12 70
-  else
-    echo; t "$1"; pause
+    dialog --clear --ok-label "$(t ok)" --msgbox "$(t "$1")" 0 0 && return
   fi
+  echo; t "$1"; pause
 }
 
 # confirm KEY [ARG]  asks the question stored under KEY, with %s replaced by ARG
@@ -295,8 +294,11 @@ confirm() {
   text=$(t "$1")
   text=${text//%s/${2:-}}
   if use_dialog; then
-    dialog --clear --yes-label "$(t yes)" --no-label "$(t no)" --yesno "$text" 14 70
-    return $?
+    if dialog --clear --yes-label "$(t yes)" --no-label "$(t no)" --yesno "$text" 0 0; then
+      return 0
+    elif [ $? -eq 1 ]; then
+      return 1
+    fi
   fi
   echo; echo "$text"
   read -r -p "$(t continue_q)" answer <"$TTY"
@@ -309,19 +311,26 @@ choose() {
   shift 2
   local items=("$@")
   if use_dialog; then
-    choice=$(dialog --clear --no-cancel --ok-label "$(t ok)" --title "$title" --menu "$text" 23 80 13 "${items[@]}" 3>&1 1>&2 2>&3) || choice=0
-    echo "$choice"
-  else
-    {
-      echo
-      echo "$title - $text"
-      for ((i = 0; i < ${#items[@]}; i += 2)); do
-        printf '  %s) %s\n' "${items[i]}" "${items[i+1]}"
-      done
-    } >&2
-    read -r -p "$(t option_q)" choice <"$TTY"
-    echo "$choice"
+    local rows cols menu_height
+    rows=$(tput lines 2>/dev/null || echo 24)
+    cols=$(tput cols 2>/dev/null || echo 80)
+    [ "$rows" -lt 12 ] && rows=0
+    [ "$cols" -lt 40 ] && cols=0
+    menu_height=$(( rows > 10 ? rows - 10 : 0 ))
+    if choice=$(dialog --clear --no-cancel --ok-label "$(t ok)" --title "$title" --menu "$text" "$rows" "$cols" "$menu_height" "${items[@]}" 3>&1 1>&2 2>&3); then
+      echo "$choice"
+      return
+    fi
   fi
+  {
+    echo
+    echo "$title - $text"
+    for ((i = 0; i < ${#items[@]}; i += 2)); do
+      printf '  %s) %s\n' "${items[i]}" "${items[i+1]}"
+    done
+  } >&2
+  read -r -p "$(t option_q)" choice <"$TTY"
+  echo "$choice"
 }
 
 # run SCRIPT [ARGS...]  runs a script of the repository and waits
