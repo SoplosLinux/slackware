@@ -204,7 +204,7 @@ EOF
     fi
 
     # Set geninitrd to use dracut backend so future kernel updates keep Plymouth
-    local genconf=$ROOT/etc/default/geninitrd
+    genconf=$ROOT/etc/default/geninitrd
     if [ -e "$genconf" ]; then
       backup "$genconf"
       if grep -q '^GENERATOR=' "$genconf"; then
@@ -214,7 +214,7 @@ EOF
       fi
     fi
 
-    local kver
+    kver=""
     kver=$(uname -r)
     # Slackware GRUB boots /boot/initrd-<kver>.img (from geninitrd) or /boot/initrd.gz
     if [ -f "/boot/initrd-${kver}.img" ]; then
