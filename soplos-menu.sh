@@ -545,6 +545,11 @@ install_grub_theme() {
       echo "GRUB_THEME=$dest/theme.txt" >> "$grubdef"
     fi
     echo "Set GRUB_THEME in $grubdef."
+    # GRUB_TERMINAL=console disables all graphical themes; switch to gfxterm
+    if grep -q '^GRUB_TERMINAL=console' "$grubdef"; then
+      sed -i 's/^GRUB_TERMINAL=console/GRUB_TERMINAL=gfxterm/' "$grubdef"
+      echo "Changed GRUB_TERMINAL from console to gfxterm (required for themes)."
+    fi
   else
     echo "Warning: $grubdef not found. Add GRUB_THEME=$dest/theme.txt by hand."
   fi
