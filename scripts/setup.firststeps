@@ -23,6 +23,7 @@
 #   unsudo         take sudo from a user
 #   deluser        delete a user
 #   lang        set the system language
+#   keyboard [LAYOUT]  set the keyboard layout (Console, Wayland/Plasma, X11)
 #   resolution  force a screen resolution for X11
 #   shortcuts   reset the keyboard shortcuts of a user (if Super or Alt+Tab do nothing)
 #   userdirs    rename the user folders (Desktop, Documents, ...) to Spanish
@@ -35,7 +36,7 @@ PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 
 die() { echo "Error: $*" >&2; exit 1; }
 
-[ "$(id -u)" -eq 0 ] || [ "${1:-}" = "mirrorlist" ] || die "this script must be run as root."
+[ "$(id -u)" -eq 0 ] || [ -n "$ROOT" ] || [ "${1:-}" = "mirrorlist" ] || die "this script must be run as root."
 
 backup() {
   [ -e "$1" ] && [ ! -e "$1.pre-soplos" ] && cp -p "$1" "$1.pre-soplos"
@@ -49,7 +50,17 @@ ask() {
 }
 
 release() {
-  sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' "$ROOT/etc/slackware-version" 2> /dev/null | head -n 1
+  if [ -n "${SOPLOS_SLACK_VERSION:-}" ]; then
+    echo "$SOPLOS_SLACK_VERSION"
+    return
+  fi
+  local ver
+  ver=$(cat "$ROOT/etc/slackware-version" 2> /dev/null || true)
+  if echo "$ver" | grep -Eq '(\+|current)'; then
+    echo 16
+    return
+  fi
+  echo "$ver" | sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' | head -n 1
 }
 
 action_runlevel4() {
@@ -224,6 +235,137 @@ action_lang() {
   fi
   [ "$done" -eq 1 ] || die "no LANG line found in $sh. Edit it by hand."
   echo "Language set to $loc. Log out and in to apply it."
+
+  # If Spanish locale was picked, offer setting keyboard layout too
+  case "$loc" in
+    es*|ES*)
+      local ask_kb
+      ask_kb=$(ask "Also configure Spanish keyboard layout (es)? [Y/n]: " Y)
+      case "$ask_kb" in
+        y|Y|s|S|"") action_keyboard "es" ;;
+      esac
+      ;;
+  esac
+}
+
+action_keyboard() {
+  local layout=${1:-} rc_keymap conf_xdg conf_x11 vconsole u home xkb_sh xkb_csh
+  if [ -z "$layout" ]; then
+    layout=$(ask "Keyboard layout [es]: " es)
+  fi
+  [[ $layout =~ ^[a-z]{2,5}(_[a-z0-9]+)?$ ]] || die "invalid keyboard layout: $layout"
+
+  # 1. Linux console (TTY / boot): /etc/rc.d/rc.keymap and /etc/vconsole.conf
+  rc_keymap=$ROOT/etc/rc.d/rc.keymap
+  mkdir -p "$(dirname "$rc_keymap")"
+  backup "$rc_keymap"
+  cat > "$rc_keymap" << EOF
+#!/bin/sh
+# Load the keyboard map.
+if [ -x /usr/bin/loadkeys ]; then
+  /usr/bin/loadkeys $layout
+fi
+EOF
+  chmod 755 "$rc_keymap"
+  echo "Wrote $rc_keymap (console boot keymap)."
+
+  if command -v loadkeys > /dev/null 2>&1; then
+    loadkeys "$layout" 2> /dev/null || true
+  fi
+
+  vconsole=$ROOT/etc/vconsole.conf
+  backup "$vconsole"
+  echo "KEYMAP=$layout" > "$vconsole"
+
+  # 2. Wayland & compositores: default XKB environment variables for libxkbcommon
+  xkb_sh=$ROOT/etc/profile.d/xkb.sh
+  xkb_csh=$ROOT/etc/profile.d/xkb.csh
+  mkdir -p "$(dirname "$xkb_sh")"
+  backup "$xkb_sh"
+  cat > "$xkb_sh" << EOF
+#!/bin/sh
+export XKB_DEFAULT_LAYOUT="$layout"
+export XKB_DEFAULT_MODEL="pc105"
+EOF
+  chmod 755 "$xkb_sh"
+
+  backup "$xkb_csh"
+  cat > "$xkb_csh" << EOF
+#!/bin/csh
+setenv XKB_DEFAULT_LAYOUT "$layout"
+setenv XKB_DEFAULT_MODEL "pc105"
+EOF
+  chmod 755 "$xkb_csh"
+  echo "Wrote $xkb_sh and $xkb_csh (Wayland / libxkbcommon defaults)."
+
+  # 3. KDE Plasma (Wayland and X11): global /etc/xdg/kcminputrc and user configs
+  conf_xdg=$ROOT/etc/xdg/kcminputrc
+  mkdir -p "$(dirname "$conf_xdg")"
+  backup "$conf_xdg"
+  if [ -f "$conf_xdg" ] && grep -q '^\[Keyboard\]' "$conf_xdg"; then
+    sed -i '/^\[Keyboard\]/,/^\[/{s/^LayoutList=.*/LayoutList='"$layout"'/; s/^Use=.*/Use=true/}' "$conf_xdg"
+  else
+    cat >> "$conf_xdg" << EOF
+
+[Keyboard]
+LayoutList=$layout
+LayoutLoopCount=-1
+Model=pc105
+Options=
+SwitchMode=Global
+Use=true
+VariantList=
+EOF
+  fi
+  echo "Wrote global KDE Plasma configuration in $conf_xdg."
+
+  # Update kcminputrc for existing regular users
+  for u in $(regular_users); do
+    home=$(awk -F: -v u="$u" '$1 == u {print $6}' "$ROOT/etc/passwd")
+    local uconf="$ROOT$home/.config/kcminputrc"
+    if [ -d "$ROOT$home/.config" ]; then
+      backup "$uconf"
+      if [ -f "$uconf" ] && grep -q '^\[Keyboard\]' "$uconf"; then
+        sed -i '/^\[Keyboard\]/,/^\[/{s/^LayoutList=.*/LayoutList='"$layout"'/; s/^Use=.*/Use=true/}' "$uconf"
+      else
+        cat >> "$uconf" << EOF
+
+[Keyboard]
+LayoutList=$layout
+LayoutLoopCount=-1
+Model=pc105
+Options=
+SwitchMode=Global
+Use=true
+VariantList=
+EOF
+      fi
+      local ug
+      ug=$(id -g "$u" 2>/dev/null || echo 1000)
+      chown "$u:$ug" "$uconf" 2>/dev/null || true
+    fi
+  done
+
+  # 4. X11 compatibility: /etc/X11/xorg.conf.d/00-keyboard.conf
+  conf_x11=$ROOT/etc/X11/xorg.conf.d/00-keyboard.conf
+  mkdir -p "$(dirname "$conf_x11")"
+  backup "$conf_x11"
+  cat > "$conf_x11" << EOF
+Section "InputClass"
+    Identifier "system-keyboard"
+    MatchIsKeyboard "on"
+    Option "XkbLayout" "$layout"
+    Option "XkbModel" "pc105"
+EndSection
+EOF
+  echo "Wrote $conf_x11 (X11 sessions)."
+
+  if [ -n "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && command -v setxkbmap > /dev/null 2>&1; then
+    setxkbmap "$layout" 2> /dev/null || true
+  fi
+
+  echo "Keyboard layout successfully set to '$layout' (Console, Wayland/Plasma, X11)."
+  echo "Active graphical sessions will apply the new layout after re-login."
 }
 
 action_resolution() {
@@ -249,6 +391,8 @@ Section "Screen"
 EndSection
 EOF
   echo "Wrote $conf. It applies to X11 sessions after a restart."
+  echo "Notice: In Wayland (Plasma Wayland), display resolution is managed directly"
+  echo "through KDE System Settings -> Display or 'kscreen-doctor'."
 }
 
 # Runs as the target user: renames the English folders to the Spanish ones
@@ -378,6 +522,7 @@ case "${1:-}" in
   deluser)    action_deluser ;;
   sudo)       action_sudo ;;
   lang)       action_lang ;;
+  keyboard|keymap) action_keyboard "${2:-}" ;;
   resolution) action_resolution ;;
   shortcuts)  action_shortcuts ;;
   userdirs)   action_userdirs ;;

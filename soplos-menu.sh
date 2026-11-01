@@ -86,8 +86,16 @@ tr_add m7 "Build kernel 6.8.9 (Slackware 15)" "Compilar el kernel 6.8.9 (Slackwa
 tr_add m8 "Read the Plymouth tutorial" "Leer el tutorial de Plymouth"
 tr_add m9 "Download the latest scripts again" "Descargar de nuevo los últimos scripts"
 tr_add mD "Diagnose Plasma: missing libraries and QML modules" "Diagnosticar Plasma: librerías y módulos QML que faltan"
+tr_add mV "Change Slackware version (15 / 16)" "Cambiar versión de Slackware (15 / 16)"
 tr_add mL "Change the language" "Cambiar el idioma"
 tr_add mq "Quit" "Salir"
+
+tr_add v_title "Slackware version" "Versión de Slackware"
+tr_add v_text "Select the Slackware branch to target for mirrors and packages:" "Selecciona la rama de Slackware para los mirrors y paquetes:"
+tr_add v1 "Slackware 16.0 / -current (modern, Wayland)" "Slackware 16.0 / -current (moderna, Wayland)"
+tr_add v2 "Slackware 15.0 (stable)" "Slackware 15.0 (estable)"
+tr_add v_set16 "Slackware version set to 16 (-current)." "Versión de Slackware establecida a 16 (-current)."
+tr_add v_set15 "Slackware version set to 15.0 (stable)." "Versión de Slackware establecida a 15.0 (estable)."
 
 tr_add c_title "Clean Plasma" "Limpiar Plasma"
 tr_add c_text "Remove what a normal Plasma desktop does not need" "Quitar lo que un escritorio Plasma normal no necesita"
@@ -103,6 +111,7 @@ tr_add f_title "First steps" "Primeros pasos"
 tr_add f_text "Usual steps after installing Slackware" "Pasos habituales tras instalar Slackware"
 tr_add f1 "Boot into the graphical login (runlevel 4)" "Arrancar en el login gráfico (nivel 4)"
 tr_add f4 "Set the system language" "Establecer el idioma del sistema"
+tr_add f8 "Set keyboard layout (Console and Wayland/X11)" "Establecer distribución del teclado (Consola y Wayland/X11)"
 tr_add f5 "Force a screen resolution for X11" "Forzar una resolución de pantalla en X11"
 tr_add f6 "Rename the user folders to Spanish" "Renombrar las carpetas de usuario al español"
 tr_add f7 "Reset keyboard shortcuts (if Super or Alt+Tab do nothing)" "Restablecer los atajos de teclado (si Super o Alt+Tab no hacen nada)"
@@ -232,7 +241,39 @@ fetch_repo() {
 
 # Slackware major version: 15, 16, or empty if it cannot be told
 release() {
-  sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' /etc/slackware-version 2> /dev/null | head -n 1
+  if [ -n "${SOPLOS_SLACK_VERSION:-}" ]; then
+    echo "$SOPLOS_SLACK_VERSION"
+    return
+  fi
+  local ver
+  ver=$(cat /etc/slackware-version 2> /dev/null || true)
+  if echo "$ver" | grep -Eq '(\+|current)'; then
+    echo 16
+    return
+  fi
+  echo "$ver" | sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' | head -n 1
+}
+
+pick_slackware_version() {
+  local c
+  c=$(choose "$(t v_title)" "$(t v_text)" \
+    1 "$(t v1)" \
+    2 "$(t v2)" \
+    0 "$(t back)")
+  clear
+  case "$c" in
+    1)
+      REL=16
+      export SOPLOS_SLACK_VERSION=16
+      say v_set16
+      ;;
+    2)
+      REL=15
+      export SOPLOS_SLACK_VERSION=15
+      say v_set15
+      ;;
+    *) return ;;
+  esac
 }
 
 pause() {
@@ -391,14 +432,15 @@ menu_firststeps() {
   local c
   while true; do
     c=$(choose "$(t f_title)" "$(t f_text)" \
-      1 "$(t f1)" 2 "$(t f4)" 3 "$(t f5)" 4 "$(t f6)" 5 "$(t f7)" 0 "$(t back)")
+      1 "$(t f1)" 2 "$(t f4)" 3 "$(t f8)" 4 "$(t f5)" 5 "$(t f6)" 6 "$(t f7)" 0 "$(t back)")
     clear
     case "$c" in
       1) run scripts/setup.firststeps runlevel4 ;;
       2) run scripts/setup.firststeps lang ;;
-      3) run scripts/setup.firststeps resolution ;;
-      4) run scripts/setup.firststeps userdirs ;;
-      5) run scripts/setup.firststeps shortcuts ;;
+      3) run scripts/setup.firststeps keyboard ;;
+      4) run scripts/setup.firststeps resolution ;;
+      5) run scripts/setup.firststeps userdirs ;;
+      6) run scripts/setup.firststeps shortcuts ;;
       0|"") return ;;
     esac
   done
@@ -541,7 +583,7 @@ uninstall() {
 
 # Start again from the downloaded copy of this menu
 restart_from_repo() {
-  exec env SOPLOS_REEXEC=1 SOPLOS_WORK="$WORK" SOPLOS_LANG="$LC_MENU" bash "$REPO/soplos-menu.sh"
+  exec env SOPLOS_REEXEC=1 SOPLOS_WORK="$WORK" SOPLOS_LANG="$LC_MENU" SOPLOS_SLACK_VERSION="$REL" bash "$REPO/soplos-menu.sh"
 }
 
 main() {
@@ -555,16 +597,18 @@ main() {
   install_launcher
   REL=$(release)
   local c rel_text kernel_item=()
-  # The kernel 6.8.9 build was written for Slackware 15: offered only there
-  [ "$REL" = "15" ] && kernel_item=(K "$(t m7)")
   # Entries 1 to 6 follow the order of a fresh install; the rest are tools
   # for later, so the menu reads top to bottom as a recipe.
   while true; do
+    export SOPLOS_SLACK_VERSION="$REL"
+    kernel_item=()
+    # The kernel 6.8.9 build was written for Slackware 15: offered only there
+    [ "$REL" = "15" ] && kernel_item=(K "$(t m7)")
     rel_text="$(t m_text) ${REL:-$(t unknown)} - $(t m_hint)"
     c=$(choose "Soplos Linux" "$rel_text" \
       1 "$(t m2)" 2 "$(t mP)" 3 "$(t m1)" 4 "$(t m3)" 5 "$(t m4)" 6 "$(t m5)" \
       7 "$(t mU)" 8 "$(t m6)" 9 "$(t mD)" \
-      "${kernel_item[@]}" T "$(t m8)" R "$(t m9)" L "$(t mL)" 0 "$(t mq)")
+      "${kernel_item[@]}" V "$(t mV)" T "$(t m8)" R "$(t m9)" L "$(t mL)" 0 "$(t mq)")
     clear
     case "$c" in
       1) menu_firststeps ;;
@@ -576,6 +620,7 @@ main() {
       7) menu_users ;;
       8) bash "$REPO/scripts/setup.orphans" -o /root/orphans.txt; t orphans_done; pause ;;
       9) run scripts/setup.diagnose ;;
+      V|v) pick_slackware_version ;;
       K|k)
         if [ "$REL" != "15" ]; then say m7_only15
         elif confirm k_confirm; then run 15/scripts/setup.update.kernel-6.8.9s; fi
@@ -598,4 +643,5 @@ main() {
 # su without a dash leaves the sbin folders out of PATH; the scripts inherit this
 export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 export SOPLOS_LANG=$LC_MENU
+[ -n "${REL:-}" ] && export SOPLOS_SLACK_VERSION="$REL"
 main "$@"

@@ -39,10 +39,20 @@ HOOK=$REPO/16/etc/geninitrd.d/post-install/grub-update.sh
 die() { echo "Error: $*" >&2; exit 1; }
 
 release() {
-  sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' "$ROOT/etc/slackware-version" 2> /dev/null | head -n 1
+  if [ -n "${SOPLOS_SLACK_VERSION:-}" ]; then
+    echo "$SOPLOS_SLACK_VERSION"
+    return
+  fi
+  local ver
+  ver=$(cat "$ROOT/etc/slackware-version" 2> /dev/null || true)
+  if echo "$ver" | grep -Eq '(\+|current)'; then
+    echo 16
+    return
+  fi
+  echo "$ver" | sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' | head -n 1
 }
 
-REL=${RELEASE:-$(release)}
+REL=${RELEASE:-${SOPLOS_SLACK_VERSION:-$(release)}}
 case "$REL" in
   15|16) ;;
   *) die "could not tell the Slackware release from /etc/slackware-version. This installer exists for 15 and 16." ;;

@@ -49,7 +49,7 @@ PROTECTED=" llvm mesa glibc glibc-solibs python3 perl gcc gcc-g++ make binutils
  plasma-workspace plasma-desktop kwin kwin-x11 libplasma sddm xorg-server
  samba vulkan-sdk pkgtools sysvinit-scripts aaa_base aaa_libraries grub
  elogind pam shadow coreutils bash util-linux dolphin konsole kate okular
- gwenview ark spectacle kcalc systemsettings elisa dragon guile "
+ gwenview ark spectacle kcalc systemsettings elisa dragon guile linuxdoc-tools "
 
 # Dependencies that are in the map but only concern a language binding or a
 # helper tool nobody uses, so they must not keep a package installed:
@@ -213,7 +213,7 @@ add_section cjk-fonts on "CJK, Indic and Thai fonts (those scripts will show as 
 
 add_section old-tools on "Old terminal editors and optical disc tools" \
   jed joe jove ksh93 sc sc-im dc3dd rdfind seejpeg cdrtools cdrdao \
-  dvd+rw-tools cdparanoia normalize madplay linuxdoc-tools soma
+  dvd+rw-tools cdparanoia normalize madplay soma
 
 add_section hp-drivers on "HP printer drivers (only useful with an HP printer)" \
   hplip
@@ -334,7 +334,18 @@ if [ -n "$UNDO" ]; then
   MIRRORS=${MIRRORS:-/etc/slackpkg/mirrors}
   if [ -e "$MIRRORS" ] && ! grep -q '^[^#[:space:]]' "$MIRRORS"; then
     cp -p "$MIRRORS" "$MIRRORS.pre-soplos" 2> /dev/null
-    if grep -q '^Slackware 15' /etc/slackware-version 2> /dev/null; then
+    local slack_ver
+    slack_ver=${SOPLOS_SLACK_VERSION:-}
+    if [ -z "$slack_ver" ]; then
+      if grep -Eq '(\+|current)' /etc/slackware-version 2> /dev/null; then
+        slack_ver=16
+      elif grep -q '^Slackware 15' /etc/slackware-version 2> /dev/null; then
+        slack_ver=15
+      else
+        slack_ver=16
+      fi
+    fi
+    if [ "$slack_ver" = "15" ]; then
       echo "https://mirrors.slackware.com/slackware/slackware64-15.0/" >> "$MIRRORS"
     else
       echo "https://mirrors.slackware.com/slackware/slackware64-current/" >> "$MIRRORS"

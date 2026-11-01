@@ -37,7 +37,17 @@ die() { echo "Error: $*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "this script must be run as root."
 
 release() {
-  sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' "$ROOT/etc/slackware-version" 2> /dev/null | head -n 1
+  if [ -n "${SOPLOS_SLACK_VERSION:-}" ]; then
+    echo "$SOPLOS_SLACK_VERSION"
+    return
+  fi
+  local ver
+  ver=$(cat "$ROOT/etc/slackware-version" 2> /dev/null || true)
+  if echo "$ver" | grep -Eq '(\+|current)'; then
+    echo 16
+    return
+  fi
+  echo "$ver" | sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' | head -n 1
 }
 
 download() {
@@ -54,7 +64,69 @@ is_installed() {
   ls "$PKGDIR/$1"-[0-9]* > /dev/null 2>&1
 }
 
+configure_sbopkg() {
+  local conf=$ROOT/etc/sbopkg/sbopkg.conf repo_name branch
+  case "$(release)" in
+    15)
+      repo_name=SBo
+      branch=15.0
+      ;;
+    *)
+      repo_name=SBo-git
+      branch=current
+      ;;
+  esac
+
+  if [ ! -f "$conf" ] && [ -f "$ROOT/etc/sbopkg/sbopkg.conf.new" ]; then
+    cp "$ROOT/etc/sbopkg/sbopkg.conf.new" "$conf"
+  fi
+
+  if [ -f "$conf" ]; then
+    # Set REPO_NAME (SBo-git for current, SBo for releases)
+    if grep -q '^REPO_NAME=' "$conf"; then
+      sed -i "s/^REPO_NAME=.*/REPO_NAME=\${REPO_NAME:-$repo_name}/" "$conf"
+    elif grep -q '^[#[:space:]]*REPO_NAME=' "$conf"; then
+      sed -i "s/^[#[:space:]]*REPO_NAME=.*/REPO_NAME=\${REPO_NAME:-$repo_name}/" "$conf"
+    fi
+
+    # Set REPO_BRANCH (current or 15.0)
+    if grep -q '^REPO_BRANCH=' "$conf"; then
+      sed -i "s/^REPO_BRANCH=.*/REPO_BRANCH=\${REPO_BRANCH:-$branch}/" "$conf"
+    elif grep -q '^[#[:space:]]*REPO_BRANCH=' "$conf"; then
+      sed -i "s/^[#[:space:]]*REPO_BRANCH=.*/REPO_BRANCH=\${REPO_BRANCH:-$branch}/" "$conf"
+    fi
+  fi
+}
+
+ensure_sbopkg_deps() {
+  local needed=(git patch linuxdoc-tools autoconf automake libtool gettext-tools pkgconf)
+  local missing=() p
+  for p in "${needed[@]}"; do
+    is_installed "$p" || missing+=("$p")
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "Installing essential build dependencies for sbopkg: ${missing[*]}..."
+    slackpkg -batch=on -default_answer=y install "${missing[@]}" || die "could not install build dependencies: ${missing[*]}"
+  fi
+}
+
 install_sbopkg() {
+  local repo_name branch target_dir
+  case "$(release)" in
+    15)
+      repo_name=SBo
+      branch=15.0
+      target_dir="$ROOT/var/lib/sbopkg/SBo/15.0"
+      ;;
+    *)
+      repo_name=SBo-git
+      branch=current
+      target_dir="$ROOT/var/lib/sbopkg/SBo-git"
+      ;;
+  esac
+
+  ensure_sbopkg_deps
+
   if command -v sbopkg > /dev/null 2>&1; then
     echo "sbopkg is already installed."
   else
@@ -65,8 +137,11 @@ install_sbopkg() {
     installpkg "$tmp/sbopkg.tgz" || die "installpkg failed."
     rm -rf "$tmp"
   fi
-  if [ ! -d "$ROOT/var/lib/sbopkg/SBo/15.0" ]; then
-    echo "Downloading the SlackBuilds.org index (repository 15.0)..."
+
+  configure_sbopkg
+
+  if [ ! -d "$target_dir" ]; then
+    echo "Downloading the SlackBuilds.org index ($repo_name $branch)..."
     sbopkg -r || die "sbopkg could not sync the repository."
   fi
 }
@@ -85,6 +160,11 @@ sbo_install() {
 }
 
 action_plymouth() {
+  if ! is_installed linuxdoc-tools; then
+    echo "linuxdoc-tools (DocBook XSL stylesheets) is required to build Plymouth documentation."
+    echo "Installing linuxdoc-tools with slackpkg..."
+    slackpkg -batch=on -default_answer=y install linuxdoc-tools || die "failed to install linuxdoc-tools with slackpkg."
+  fi
   case "$(release)" in
     15) sbo_install plymouth dracut ;;
     *)  sbo_install plymouth ;;
