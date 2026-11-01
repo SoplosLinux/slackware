@@ -157,6 +157,9 @@ tr_add s5_confirm "Install KDE Discover and Flatpak from AlienBOB's packages?\n\
 tr_add s6 "Soplos Plasma splash screen (KDE login animation)" "Pantalla de bienvenida Soplos para Plasma (animación de inicio de KDE)"
 tr_add s6_confirm "Install the Soplos Slackware Plasma splash screen?\n\nCopies the theme to /usr/share/plasma/look-and-feel/\nand sets it as the default for all users." "¿Instalar la pantalla de bienvenida Soplos para Plasma?\n\nCopia el tema en /usr/share/plasma/look-and-feel/\ny lo establece como predeterminado para todos los usuarios."
 tr_add s6_done "Plasma splash screen installed. It will be used on the next login." "Pantalla de bienvenida instalada. Se usará en el próximo inicio de sesión."
+tr_add s7 "Slackware icons for the application menu button" "Iconos de Slackware para el botón del menú de aplicaciones"
+tr_add s7_confirm "Install the Slackware menu icons into the system?\n\nCopies the logos to /usr/share/icons/hicolor/ and /usr/share/pixmaps/\nso they appear directly in the icon chooser when configuring the launcher button." "¿Instalar los iconos de Slackware en el sistema?\n\nCopia los logos en /usr/share/icons/hicolor/ y /usr/share/pixmaps/\npara que aparezcan directamente en el selector de iconos al configurar el botón del menú."
+tr_add s7_done "Icons installed. Right-click the application menu button → Configure → change icon (search: slackware)." "Iconos instalados. Clic derecho en el botón del menú → Configurar → cambiar icono (busca: slackware)."
 
 tr_add g_title "GRUB" "GRUB"
 tr_add g_text "Boot menu" "Menú de arranque"
@@ -492,7 +495,7 @@ menu_software() {
   local c
   while true; do
     c=$(choose "$(t s_title)" "$(t s_text)" \
-      1 "$(t s1)" 2 "$(t s2)" 3 "$(t s3)" 4 "$(t s4)" 5 "$(t s5)" 6 "$(t s6)" 0 "$(t back)")
+      1 "$(t s1)" 2 "$(t s2)" 3 "$(t s3)" 4 "$(t s4)" 5 "$(t s5)" 6 "$(t s6)" 7 "$(t s7)" 0 "$(t back)")
     clear
     case "$c" in
       1) run scripts/setup.software sbopkg ;;
@@ -501,54 +504,74 @@ menu_software() {
       4) confirm s4_confirm && run scripts/setup.software flatpak ;;
       5) confirm s5_confirm && run scripts/setup.software discover ;;
       6) confirm s6_confirm && install_plasma_splash ;;
+      7) confirm s7_confirm && install_soplos_icons ;;
       0|"") return ;;
     esac
   done
 }
 
 install_plasma_splash() {
-  local src="$REPO/plasma-splash/Slack"
   local dest=/usr/share/plasma/look-and-feel/Slack
   local kdeglobals=/etc/xdg/kdeglobals
-
-  if [ ! -d "$src" ]; then
-    echo "Error: plasma-splash/Slack not found in the repository ($src)."
-    pause; return 1
-  fi
+  local raw_base="https://raw.githubusercontent.com/$OWNER_REPO/$REF"
+  local splash_local="$REPO/plasma-splash/Slack"
+  local wp_local="$REPO/artwork/wallpapers"
 
   echo "Installing Soplos Plasma splash screen..."
-  mkdir -p /usr/share/plasma/look-and-feel
-  rm -rf "$dest"
-  if ! cp -r "$src" "$dest"; then
-    echo "Error: could not copy theme files to $dest."
-    pause; return 1
+  mkdir -p "$dest/contents/previews" "$dest/contents/splash/images"
+
+  if [ -d "$splash_local" ]; then
+    echo "Using local splash theme files..."
+    cp -r "$splash_local"/* "$dest/"
+  else
+    echo "Downloading splash theme from GitHub ($raw_base)..."
+    local files=(
+      "metadata.json"
+      "metadata.desktop"
+      "contents/previews/splash.png"
+      "contents/splash/Splash.qml"
+      "contents/splash/images/background.png"
+      "contents/splash/images/logo.png"
+      "contents/splash/images/rectangle.svg"
+    )
+    for f in "${files[@]}"; do
+      mkdir -p "$dest/$(dirname "$f")"
+      echo "  Downloading $f..."
+      if ! download "$raw_base/plasma-splash/Slack/$f" "$dest/$f"; then
+        echo "Error: failed to download $f from GitHub."
+        pause; return 1
+      fi
+    done
   fi
   echo "Splash screen installed to $dest."
 
   # Install wallpapers
-  local wpdir="$REPO/artwork/wallpapers"
-  if [ -d "$wpdir" ]; then
-    echo "Installing wallpapers..."
-    while IFS= read -r -d '' wp; do
-      local name
-      name=$(basename "$wp" | sed 's/\.[^.]*$//')
-      local wpdest="/usr/share/wallpapers/Soplos $name"
-      mkdir -p "$wpdest/contents/images"
-      cp "$wp" "$wpdest/contents/images/"
-      local wpid
-      wpid=$(printf '%s' "soplos-$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-      cat > "$wpdest/metadata.json" << EOF
+  echo "Installing wallpapers..."
+  local wp_names=("Wallpaper 01" "Wallpaper 02" "Wallpaper 03" "Wallpaper 04")
+  for wp in "${wp_names[@]}"; do
+    local wpdest="/usr/share/wallpapers/Soplos $wp"
+    mkdir -p "$wpdest/contents/images"
+    local wpfile="$wp.jpg"
+    if [ -f "$wp_local/$wpfile" ]; then
+      cp "$wp_local/$wpfile" "$wpdest/contents/images/$wpfile"
+    else
+      local wp_url="$raw_base/artwork/wallpapers/$(echo "$wpfile" | sed 's/ /%20/g')"
+      echo "  Downloading $wpfile..."
+      download "$wp_url" "$wpdest/contents/images/$wpfile" || echo "Warning: could not download $wpfile"
+    fi
+    local wpid
+    wpid=$(printf '%s' "soplos-$wp" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+    cat > "$wpdest/metadata.json" << EOF
 {
     "KPlugin": {
-        "Name": "Soplos $name",
+        "Name": "Soplos $wp",
         "Id": "$wpid",
         "License": "GPLv2+"
     }
 }
 EOF
-      echo "  Wallpaper: $name"
-    done < <(find "$wpdir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.webp" \) -print0 | sort -z)
-  fi
+    echo "  Wallpaper installed: Soplos $wp"
+  done
 
   # Set splash as system-wide default in /etc/xdg/kdeglobals
   mkdir -p "$(dirname "$kdeglobals")"
@@ -567,6 +590,67 @@ EOF
   fi
 
   say s6_done
+  pause
+}
+
+install_soplos_icons() {
+  local logodir="$REPO/artwork/logos"
+  local hicolor=/usr/share/icons/hicolor
+  local pixmaps=/usr/share/pixmaps
+  local raw_base="https://raw.githubusercontent.com/$OWNER_REPO/$REF"
+
+  echo "Installing Slackware icons into system..."
+  mkdir -p "$hicolor/512x512/apps" "$pixmaps"
+
+  local logo_sym="start-here-slackware-symbolic-icon-2048x2048-gxwl2cmh.png"
+  local logo_classic="Slackware_logo.svg.png"
+
+  local target_sym="$hicolor/512x512/apps/start-here-slackware.png"
+  local target_classic="$hicolor/512x512/apps/slackware-logo.png"
+
+  # 1. Obtain symbolic icon
+  if [ -f "$logodir/$logo_sym" ]; then
+    cp "$logodir/$logo_sym" "$target_sym"
+  else
+    echo "  Downloading start-here-slackware.png from GitHub..."
+    download "$raw_base/artwork/logos/$logo_sym" "$target_sym" || true
+  fi
+
+  # 2. Obtain classic icon
+  if [ -f "$logodir/$logo_classic" ]; then
+    cp "$logodir/$logo_classic" "$target_classic"
+  else
+    echo "  Downloading slackware-logo.png from GitHub..."
+    download "$raw_base/artwork/logos/$logo_classic" "$target_classic" || true
+  fi
+
+  # Aliases in 512x512
+  [ -f "$target_sym" ] && cp -f "$target_sym" "$hicolor/512x512/apps/distributor-logo-slackware.png"
+  [ -f "$target_classic" ] && cp -f "$target_classic" "$hicolor/512x512/apps/slackware.png"
+
+  # Also copy to /usr/share/pixmaps
+  [ -f "$target_sym" ] && cp -f "$target_sym" "$pixmaps/start-here-slackware.png"
+  [ -f "$target_classic" ] && cp -f "$target_classic" "$pixmaps/slackware-logo.png"
+  [ -f "$target_classic" ] && cp -f "$target_classic" "$pixmaps/slackware.png"
+
+  # Propagate to standard sizes (256, 128, 64, 48, 32) and scalable
+  for size in 256x256 128x128 64x64 48x48 32x32 scalable; do
+    mkdir -p "$hicolor/$size/apps"
+    for name in start-here-slackware.png distributor-logo-slackware.png slackware-logo.png slackware.png; do
+      if [ -f "$hicolor/512x512/apps/$name" ]; then
+        cp -f "$hicolor/512x512/apps/$name" "$hicolor/$size/apps/$name"
+      fi
+    done
+  done
+
+  # Rebuild icon cache for hicolor
+  if command -v gtk-update-icon-cache > /dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "$hicolor" 2>/dev/null || true
+  fi
+
+  echo "Icons installed to $hicolor and $pixmaps."
+  echo "Available names in icon chooser: slackware, slackware-logo, start-here-slackware, distributor-logo-slackware"
+  say s7_done
   pause
 }
 
