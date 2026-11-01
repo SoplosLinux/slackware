@@ -148,14 +148,28 @@ install_sbopkg() {
 
 # sbo_install PACKAGE...  builds and installs them with their dependencies
 sbo_install() {
-  local p failed=()
+  local p sb failed=()
   install_sbopkg
+
+  # Fix packages with GCC 14+ strictness issues on Slackware 16 / -current
+  for sb in "$ROOT"/var/lib/sbopkg/*/*/*/libdnet.SlackBuild; do
+    [ -f "$sb" ] || continue
+    if ! grep -q "Wno-error=incompatible-pointer-types" "$sb"; then
+      sed -i 's/SLKCFLAGS="-O2 -fPIC"/SLKCFLAGS="-O2 -fPIC -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=implicit-int"/' "$sb"
+      sed -i 's/SLKCFLAGS="-O2"/SLKCFLAGS="-O2 -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=implicit-int"/' "$sb"
+    fi
+  done
+
+  export CFLAGS="${CFLAGS:-} -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=implicit-int"
+  export CXXFLAGS="${CXXFLAGS:-} -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=implicit-int"
+  export SLKCFLAGS="${SLKCFLAGS:--O2 -fPIC} -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=implicit-int"
+
   sbopkg -B -e stop -i "$*" || echo "sbopkg reported an error, checking what was installed."
   for p in "$@"; do
     is_installed "$p" || failed+=("$p")
   done
   if [ "${#failed[@]}" -gt 0 ]; then
-    die "not installed: ${failed[*]}. Read the sbopkg log in /var/log/sbopkg/."
+    die "not installed: ${failed[*]}. Read the sbopkg log: /var/log/sbopkg/sbopkg-build-log"
   fi
 }
 
@@ -165,10 +179,11 @@ action_plymouth() {
     echo "Installing linuxdoc-tools with slackpkg..."
     slackpkg -batch=on -default_answer=y install linuxdoc-tools || die "failed to install linuxdoc-tools with slackpkg."
   fi
-  case "$(release)" in
-    15) sbo_install plymouth dracut ;;
-    *)  sbo_install plymouth ;;
-  esac
+  if ! is_installed dracut && ! command -v dracut > /dev/null 2>&1; then
+    sbo_install plymouth dracut
+  else
+    sbo_install plymouth
+  fi
   echo "Plymouth installed. Now install the splash from the Plymouth option of the menu."
 }
 

@@ -117,6 +117,28 @@ if [ -e "$defaults" ]; then
 else
   cp "$SHARED/usr/share/plymouth/plymouthd.defaults" "$defaults"
 fi
+
+# Set the daemon configuration in /etc/plymouth/plymouthd.conf (read by dracut)
+pconf=$ROOT/etc/plymouth/plymouthd.conf
+mkdir -p "$ROOT/etc/plymouth"
+if [ -e "$pconf" ]; then
+  backup "$pconf"
+  ini_set "$pconf" Theme slack
+  ini_set "$pconf" ShowDelay 0
+  ini_set "$pconf" DeviceTimeout 5
+else
+  cat > "$pconf" << 'EOF'
+[Daemon]
+Theme=slack
+ShowDelay=0
+DeviceTimeout=5
+EOF
+fi
+
+if [ -z "$ROOT" ] && command -v plymouth-set-default-theme > /dev/null 2>&1; then
+  plymouth-set-default-theme slack 2>/dev/null || true
+fi
+
 cp "$SHARED/etc/rc.d/rc.plymouth" "$ROOT/etc/rc.d/rc.plymouth"
 chmod 755 "$ROOT/etc/rc.d/rc.plymouth"
 
@@ -141,48 +163,61 @@ for name in rc.S rc.6; do
   (cd "${ROOT:-/}" && patch -p0 -s < "$PATCHES/$name.patch") || die "patching $name failed."
 done
 
-# 5. GRUB: quiet splash on the kernel command line. The file is edited, not
-# replaced: it keeps the resolution, the timeout and everything else.
+# 5. GRUB: quiet splash loglevel=0 vt.global_cursor_default=0 on the kernel cmdline
+# and keep graphics payload to prevent flickering.
 grubdef=$ROOT/etc/default/grub
 if [ -e "$grubdef" ]; then
   backup "$grubdef"
-  if ! grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef"; then
-    echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> "$grubdef"
-    echo "Added GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash\"."
+  if grep -q '^GRUB_GFXPAYLOAD_LINUX=' "$grubdef"; then
+    sed -i 's/^GRUB_GFXPAYLOAD_LINUX=.*/GRUB_GFXPAYLOAD_LINUX=keep/' "$grubdef"
   else
-    for word in quiet splash; do
+    echo 'GRUB_GFXPAYLOAD_LINUX=keep' >> "$grubdef"
+  fi
+
+  if ! grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef"; then
+    echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0 vt.global_cursor_default=0 plymouth:theme=slack"' >> "$grubdef"
+    echo "Added GRUB_CMDLINE_LINUX_DEFAULT."
+  else
+    for word in quiet splash loglevel=0 vt.global_cursor_default=0 plymouth:theme=slack; do
       if ! grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef" | grep -qw "$word"; then
         sed -i "s/^\(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\)\"/\1 $word\"/; s/^GRUB_CMDLINE_LINUX_DEFAULT=\" /GRUB_CMDLINE_LINUX_DEFAULT=\"/" "$grubdef"
         if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef" | grep -qw "$word"; then
           echo "Added $word to GRUB_CMDLINE_LINUX_DEFAULT."
-        else
-          echo "Warning: could not add $word to GRUB_CMDLINE_LINUX_DEFAULT, add it by hand."
         fi
       fi
     done
   fi
 else
-  echo "Warning: $grubdef not found, add 'quiet splash' to your boot loader by hand."
+  echo "Warning: $grubdef not found, add 'quiet splash loglevel=0' to your boot loader by hand."
 fi
 
-# 6. Slackware 15: put the Plymouth binaries into the initrd tree and rebuild.
-# The tree must survive the rebuild (CLEAR_TREE="0"). Nothing else in
-# mkinitrd.conf is touched and load_kernel_modules is left to mkinitrd.
-if [ "$REL" = "15" ]; then
-  conf=$ROOT/etc/mkinitrd.conf
-  if [ ! -e "$conf" ] && [ -e "$conf.sample" ]; then
-    cp "$conf.sample" "$conf"
-  fi
-  [ -e "$conf" ] || : > "$conf"
-  backup "$conf"
-  if grep -q '^CLEAR_TREE=' "$conf"; then
-    sed -i 's/^CLEAR_TREE=.*/CLEAR_TREE="0"/' "$conf"
-  else
-    echo 'CLEAR_TREE="0"' >> "$conf"
-  fi
-  if [ -z "$ROOT" ]; then
+# 6. Rebuild initrd with Plymouth so the splash starts at early boot
+if [ -z "$ROOT" ]; then
+  if command -v dracut > /dev/null 2>&1; then
+    echo "Configuring dracut and rebuilding initramfs with Plymouth..."
+    mkdir -p "$ROOT/etc/dracut.conf.d"
+    cat > "$ROOT/etc/dracut.conf.d/plymouth.conf" << 'EOF'
+add_dracutmodules+=" plymouth "
+EOF
+    if lsmod | grep -q vmwgfx 2>/dev/null; then
+      echo 'force_drivers+=" vmwgfx "' >> "$ROOT/etc/dracut.conf.d/plymouth.conf"
+    fi
+    dracut -f || die "dracut failed."
+  elif [ "$REL" = "15" ] || command -v mkinitrd > /dev/null 2>&1; then
+    conf=$ROOT/etc/mkinitrd.conf
+    if [ ! -e "$conf" ] && [ -e "$conf.sample" ]; then
+      cp "$conf.sample" "$conf"
+    fi
+    [ -e "$conf" ] || : > "$conf"
+    backup "$conf"
+    if grep -q '^CLEAR_TREE=' "$conf"; then
+      sed -i 's/^CLEAR_TREE=.*/CLEAR_TREE="0"/' "$conf"
+    else
+      echo 'CLEAR_TREE="0"' >> "$conf"
+    fi
     echo "Adding Plymouth to the initrd tree and rebuilding the initrd..."
-    /usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree || die "plymouth-populate-initrd failed."
+    [ -x /usr/libexec/plymouth/plymouth-populate-initrd ] && \
+      /usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree || true
     mkinitrd -F || die "mkinitrd failed."
   fi
 fi
@@ -195,8 +230,17 @@ if [ "$REL" = "16" ] || [ -d "$ROOT/etc/geninitrd.d" ]; then
 fi
 
 # 8. Regenerate the GRUB menu now
-if [ -z "$ROOT" ] && [ -d /boot/grub ]; then
-  if command -v grub-update > /dev/null 2>&1; then grub-update; else grub-mkconfig -o /boot/grub/grub.cfg; fi
+if [ -z "$ROOT" ]; then
+  echo "Regenerating the GRUB menu..."
+  if command -v grub-update > /dev/null 2>&1; then
+    grub-update
+  elif command -v grub-mkconfig > /dev/null 2>&1; then
+    mkdir -p /boot/grub
+    grub-mkconfig -o /boot/grub/grub.cfg
+    if [ -f /boot/efi/EFI/Slackware/grub.cfg ]; then
+      grub-mkconfig -o /boot/efi/EFI/Slackware/grub.cfg
+    fi
+  fi
 fi
 
 echo "Done. Reboot to see the splash."
