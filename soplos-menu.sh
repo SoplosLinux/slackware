@@ -320,6 +320,16 @@ menu_clean() {
 # PICKED, empty if the user goes back. It is not called inside $(...) because
 # clear and the dialog boxes must reach the screen.
 PICKED=
+
+# Which tree the mirrors below are for, the same one setup.firststeps uses
+mirror_tree() {
+  if [ "$REL" = "15" ]; then
+    echo "Slackware 15.0 (slackware64-15.0)"
+  else
+    echo "Slackware ${REL:-current} (slackware64-current)"
+  fi
+}
+
 pick_mirror_by_country() {
   local line i c urls=() items=() names=() counts=() n
   PICKED=
@@ -334,7 +344,7 @@ pick_mirror_by_country() {
   for ((i = 0; i < ${#names[@]}; i++)); do
     items+=("$((i + 1))" "${names[i]} [${counts[i]}]")
   done
-  c=$(choose "$(t mir_title)" "$(t mir_country_text)" "${items[@]}" 0 "$(t back)")
+  c=$(choose "$(t mir_title) - $(mirror_tree)" "$(t mir_country_text)" "${items[@]}" 0 "$(t back)")
   clear
   case "$c" in
     ''|0|*[!0-9]*) return ;;
@@ -348,7 +358,7 @@ pick_mirror_by_country() {
   for ((i = 0; i < ${#urls[@]}; i++)); do
     items+=("$((i + 1))" "${urls[i]}")
   done
-  c=$(choose "$(t mir_title)" "$(t mir_pick_text) $c" "${items[@]}" 0 "$(t back)")
+  c=$(choose "$(t mir_title) - $(mirror_tree)" "$(t mir_pick_text) $c" "${items[@]}" 0 "$(t back)")
   clear
   case "$c" in
     ''|0|*[!0-9]*) return ;;
@@ -360,7 +370,7 @@ pick_mirror_by_country() {
 # Asks which slackpkg mirror to use and sets it
 choose_mirror() {
   local m base
-  m=$(choose "$(t mir_title)" "$(t mir_text)" \
+  m=$(choose "$(t mir_title) - $(mirror_tree)" "$(t mir_text)" \
     1 "$(t mir_official)" \
     2 "$(t mir_country)" \
     3 "$(t mir_custom)" \
