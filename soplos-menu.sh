@@ -154,6 +154,9 @@ tr_add s2_confirm "Build and install Plymouth from SlackBuilds.org?\n\nIt compil
 tr_add s3_confirm "Build and install open-vm-tools from SlackBuilds.org?" "¿Compilar e instalar open-vm-tools desde SlackBuilds.org?"
 tr_add s4_confirm "Install Flatpak from AlienBOB's packages and add Flathub?" "¿Instalar Flatpak desde los paquetes de AlienBOB y añadir Flathub?"
 tr_add s5_confirm "Install KDE Discover and Flatpak from AlienBOB's packages?\n\nThey were built in May and June 2026 and may not match a newer -current." "¿Instalar KDE Discover y Flatpak desde los paquetes de AlienBOB?\n\nSe compilaron en mayo y junio de 2026 y pueden no encajar con un -current más nuevo."
+tr_add s6 "Soplos Plasma splash screen (KDE login animation)" "Pantalla de bienvenida Soplos para Plasma (animación de inicio de KDE)"
+tr_add s6_confirm "Install the Soplos Slackware Plasma splash screen?\n\nCopies the theme to /usr/share/plasma/look-and-feel/\nand sets it as the default for all users." "¿Instalar la pantalla de bienvenida Soplos para Plasma?\n\nCopia el tema en /usr/share/plasma/look-and-feel/\ny lo establece como predeterminado para todos los usuarios."
+tr_add s6_done "Plasma splash screen installed. It will be used on the next login." "Pantalla de bienvenida instalada. Se usará en el próximo inicio de sesión."
 
 tr_add g_title "GRUB" "GRUB"
 tr_add g_text "Boot menu" "Menú de arranque"
@@ -489,7 +492,7 @@ menu_software() {
   local c
   while true; do
     c=$(choose "$(t s_title)" "$(t s_text)" \
-      1 "$(t s1)" 2 "$(t s2)" 3 "$(t s3)" 4 "$(t s4)" 5 "$(t s5)" 0 "$(t back)")
+      1 "$(t s1)" 2 "$(t s2)" 3 "$(t s3)" 4 "$(t s4)" 5 "$(t s5)" 6 "$(t s6)" 0 "$(t back)")
     clear
     case "$c" in
       1) run scripts/setup.software sbopkg ;;
@@ -497,9 +500,38 @@ menu_software() {
       3) confirm s3_confirm && run scripts/setup.software open-vm-tools ;;
       4) confirm s4_confirm && run scripts/setup.software flatpak ;;
       5) confirm s5_confirm && run scripts/setup.software discover ;;
+      6) confirm s6_confirm && install_plasma_splash ;;
       0|"") return ;;
     esac
   done
+}
+
+install_plasma_splash() {
+  local src="$REPO/plasma-splash/Slack"
+  local dest=/usr/share/plasma/look-and-feel/Slack
+  local kdeglobals=/etc/xdg/kdeglobals
+  [ -d "$src" ] || { echo "Error: $src not found in the repository." >&2; return 1; }
+  echo "Installing Soplos Plasma splash screen..."
+  mkdir -p /usr/share/plasma/look-and-feel
+  cp -r "$src" "$dest" || { echo "Error: could not copy theme files." >&2; return 1; }
+  echo "Theme copied to $dest."
+  # Set as system-wide default in /etc/xdg/kdeglobals
+  mkdir -p "$(dirname "$kdeglobals")"
+  if [ -f "$kdeglobals" ] && grep -q '^LookAndFeelPackage=' "$kdeglobals"; then
+    sed -i 's/^LookAndFeelPackage=.*/LookAndFeelPackage=Slack/' "$kdeglobals"
+  else
+    # Ensure [KDE] section exists
+    if ! grep -q '^\[KDE\]' "$kdeglobals" 2>/dev/null; then
+      printf '[KDE]\n' >> "$kdeglobals"
+    fi
+    sed -i '/^\[KDE\]/a LookAndFeelPackage=Slack' "$kdeglobals"
+  fi
+  echo "Set LookAndFeelPackage=Slack in $kdeglobals."
+  # Apply live if plasma-apply-lookandfeel is available
+  if command -v plasma-apply-lookandfeel > /dev/null 2>&1; then
+    plasma-apply-lookandfeel --apply Slack 2>/dev/null || true
+  fi
+  say s6_done
 }
 
 menu_grub() {
