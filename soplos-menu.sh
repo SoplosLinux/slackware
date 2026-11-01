@@ -162,6 +162,9 @@ tr_add g2 "Install the hook that regenerates it on kernel updates (Slackware 16)
 tr_add g_nohook "This system has no /etc/geninitrd.d, which only Slackware 16 provides. Use the first option after installing a kernel." "Este sistema no tiene /etc/geninitrd.d, que solo existe en Slackware 16. Usa la primera opción después de instalar un kernel."
 tr_add g_confirm "Install /etc/geninitrd.d/post-install/grub-update.sh?\n\nIt regenerates the GRUB menu every time a kernel is installed." "¿Instalar /etc/geninitrd.d/post-install/grub-update.sh?\n\nRegenera el menú de GRUB cada vez que se instala un kernel."
 tr_add g_done "Hook installed." "Hook instalado."
+tr_add g3 "Install the Slackware GRUB theme" "Instalar el tema de GRUB de Slackware"
+tr_add g3_confirm "Install the Slackware GRUB theme?\n\nDownloads philipvdh/slackware-grub2-theme from GitHub,\ninstalls it to /boot/grub/themes/slackware/ and\nsets GRUB_THEME in /etc/default/grub." "¿Instalar el tema de GRUB de Slackware?\n\nDescarga philipvdh/slackware-grub2-theme de GitHub,\nlo instala en /boot/grub/themes/slackware/ y\nestablece GRUB_THEME en /etc/default/grub."
+tr_add g3_done "Theme installed. The GRUB menu will use it on the next boot." "Tema instalado. El menú de GRUB lo usará en el próximo arranque."
 
 tr_add p_noversion "Could not detect the Slackware version from /etc/slackware-version. This installer exists for Slackware 15 and 16." "No se pudo detectar la versión de Slackware en /etc/slackware-version. Este instalador existe para Slackware 15 y 16."
 tr_add p_confirm "Install the Plymouth splash for Slackware %s?\n\nIt patches /etc/rc.d/rc.S and rc.6 and edits the GRUB configuration. Each file is saved as FILE.pre-plymouth. Take a snapshot or a backup first." "¿Instalar el splash de Plymouth para Slackware %s?\n\nParchea /etc/rc.d/rc.S y rc.6 y edita la configuración de GRUB. Cada archivo se guarda como ARCHIVO.pre-plymouth. Haz antes una instantánea o una copia de seguridad."
@@ -502,7 +505,7 @@ menu_software() {
 menu_grub() {
   local c
   while true; do
-    c=$(choose "$(t g_title)" "$(t g_text)" 1 "$(t g1)" 2 "$(t g2)" 0 "$(t back)")
+    c=$(choose "$(t g_title)" "$(t g_text)" 1 "$(t g1)" 2 "$(t g2)" 3 "$(t g3)" 0 "$(t back)")
     clear
     case "$c" in
       1) run 16/etc/geninitrd.d/post-install/grub-update.sh ;;
@@ -516,9 +519,43 @@ menu_grub() {
           say g_done
         fi
         ;;
+      3) confirm g3_confirm && install_grub_theme ;;
       0|"") return ;;
     esac
   done
+}
+
+install_grub_theme() {
+  local url="https://github.com/philipvdh/slackware-grub2-theme/archive/refs/heads/master.tar.gz"
+  local dest=/boot/grub/themes/slackware
+  local grubdef=/etc/default/grub
+  local tmp
+  tmp=$(mktemp -d) || { echo "Error: mktemp failed." >&2; return 1; }
+  echo "Downloading the Slackware GRUB theme..."
+  download "$url" "$tmp/theme.tar.gz" || { rm -rf "$tmp"; echo "Error: download failed." >&2; return 1; }
+  tar -xzmf "$tmp/theme.tar.gz" -C "$tmp" --strip-components=1 --no-same-owner || { rm -rf "$tmp"; echo "Error: could not unpack the theme." >&2; return 1; }
+  mkdir -p "$dest"
+  cp -r "$tmp"/*.pf2 "$tmp"/*.png "$tmp"/*.txt "$dest/" 2>/dev/null || { rm -rf "$tmp"; echo "Error: could not copy theme files." >&2; return 1; }
+  rm -rf "$tmp"
+  echo "Theme files installed to $dest."
+  if [ -f "$grubdef" ]; then
+    if grep -q '^GRUB_THEME=' "$grubdef"; then
+      sed -i "s|^GRUB_THEME=.*|GRUB_THEME=$dest/theme.txt|" "$grubdef"
+    else
+      echo "GRUB_THEME=$dest/theme.txt" >> "$grubdef"
+    fi
+    echo "Set GRUB_THEME in $grubdef."
+  else
+    echo "Warning: $grubdef not found. Add GRUB_THEME=$dest/theme.txt by hand."
+  fi
+  if command -v grub-update > /dev/null 2>&1; then
+    grub-update
+  elif command -v grub-mkconfig > /dev/null 2>&1; then
+    mkdir -p /boot/grub
+    grub-mkconfig -o /boot/grub/grub.cfg
+    [ -f /boot/efi/EFI/Slackware/grub.cfg ] && grub-mkconfig -o /boot/efi/EFI/Slackware/grub.cfg
+  fi
+  say g3_done
 }
 
 run_plymouth() {
