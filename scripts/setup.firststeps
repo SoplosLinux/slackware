@@ -223,6 +223,8 @@ action_lang() {
   local loc sh=$ROOT/etc/profile.d/lang.sh csh=$ROOT/etc/profile.d/lang.csh done=0
   loc=$(ask "Locale [es_ES.UTF-8]: " es_ES.UTF-8)
   [[ $loc =~ ^[A-Za-z_]+(\.[A-Za-z0-9-]+)?$ ]] || die "invalid locale."
+
+  # 1. Shell profile: /etc/profile.d/lang.sh and lang.csh
   if [ -e "$sh" ] && grep -Eq '^[[:space:]]*export LANG=' "$sh"; then
     backup "$sh"
     sed -i "s/^\([[:space:]]*export LANG=\).*/\1$loc/" "$sh"
@@ -234,7 +236,69 @@ action_lang() {
     done=1
   fi
   [ "$done" -eq 1 ] || die "no LANG line found in $sh. Edit it by hand."
-  echo "Language set to $loc. Log out and in to apply it."
+
+  # 2. System-wide /etc/locale.conf (read by systemd/elogind, Wayland compositors, SDDM)
+  local loc_conf=$ROOT/etc/locale.conf
+  backup "$loc_conf"
+  cat > "$loc_conf" << EOF
+LANG=$loc
+LC_COLLATE=C
+EOF
+  echo "Wrote $loc_conf (system locale)."
+
+  # 3. KDE Plasma 6 (Wayland and X11): /etc/xdg/plasma-localerc and ~/.config/plasma-localerc
+  local lang_short=${loc%%.*}
+  local lang_primary=${loc%%_*}
+  local kde_lang="${lang_short}:${lang_primary}"
+
+  local conf_xdg=$ROOT/etc/xdg/plasma-localerc
+  mkdir -p "$(dirname "$conf_xdg")"
+  backup "$conf_xdg"
+  cat > "$conf_xdg" << EOF
+[Formats]
+LANG=$loc
+
+[Translations]
+LANGUAGE=$kde_lang
+EOF
+  echo "Wrote global KDE Plasma language configuration in $conf_xdg."
+
+  # Write per-user KDE Plasma configuration for all regular users and root
+  local u home uid conf_user
+  while IFS=: read -r u _ uid _ _ home _; do
+    if [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] && [ -d "$ROOT$home" ]; then
+      conf_user=$ROOT$home/.config/plasma-localerc
+      mkdir -p "$(dirname "$conf_user")"
+      cat > "$conf_user" << EOF
+[Formats]
+LANG=$loc
+
+[Translations]
+LANGUAGE=$kde_lang
+EOF
+      chown -R "$uid":"$uid" "$ROOT$home/.config" 2>/dev/null || true
+    fi
+  done < "$ROOT/etc/passwd"
+
+  # Root user
+  if [ -d "$ROOT/root" ]; then
+    mkdir -p "$ROOT/root/.config"
+    cat > "$ROOT/root/.config/plasma-localerc" << EOF
+[Formats]
+LANG=$loc
+
+[Translations]
+LANGUAGE=$kde_lang
+EOF
+  fi
+
+  # Live update via kwriteconfig6 if running in KDE session
+  if [ -z "$ROOT" ] && command -v kwriteconfig6 > /dev/null 2>&1; then
+    kwriteconfig6 --file plasma-localerc --group Formats --key LANG "$loc" 2>/dev/null || true
+    kwriteconfig6 --file plasma-localerc --group Translations --key LANGUAGE "$kde_lang" 2>/dev/null || true
+  fi
+
+  echo "Language set to $loc ($kde_lang). Log out and in to apply it completely."
 
   # If Spanish locale was picked, offer setting keyboard layout too
   case "$loc" in

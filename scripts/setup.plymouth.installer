@@ -202,7 +202,34 @@ EOF
     if lsmod | grep -q vmwgfx 2>/dev/null; then
       echo 'force_drivers+=" vmwgfx "' >> "$ROOT/etc/dracut.conf.d/plymouth.conf"
     fi
-    dracut -f || die "dracut failed."
+
+    # Set geninitrd to use dracut backend so future kernel updates keep Plymouth
+    local genconf=$ROOT/etc/default/geninitrd
+    if [ -e "$genconf" ]; then
+      backup "$genconf"
+      if grep -q '^GENERATOR=' "$genconf"; then
+        sed -i 's/^GENERATOR=.*/GENERATOR="dracut"/' "$genconf"
+      else
+        echo 'GENERATOR="dracut"' >> "$genconf"
+      fi
+    fi
+
+    local kver
+    kver=$(uname -r)
+    # Slackware GRUB boots /boot/initrd-<kver>.img (from geninitrd) or /boot/initrd.gz
+    if [ -f "/boot/initrd-${kver}.img" ]; then
+      echo "Rebuilding /boot/initrd-${kver}.img with dracut..."
+      dracut -f "/boot/initrd-${kver}.img" "$kver" || die "dracut failed."
+    elif [ -f "/boot/initrd.gz" ]; then
+      echo "Rebuilding /boot/initrd.gz with dracut..."
+      dracut -f "/boot/initrd.gz" "$kver" || die "dracut failed."
+    else
+      dracut -f || die "dracut failed."
+    fi
+
+    if command -v geninitrd > /dev/null 2>&1; then
+      geninitrd || true
+    fi
   elif [ "$REL" = "15" ] || command -v mkinitrd > /dev/null 2>&1; then
     conf=$ROOT/etc/mkinitrd.conf
     if [ ! -e "$conf" ] && [ -e "$conf.sample" ]; then
