@@ -309,19 +309,21 @@ choose() {
   shift 2
   local items=("$@")
   if use_dialog; then
-    choice=$(dialog --clear --no-cancel --ok-label "$(t ok)" --title "$title" --menu "$text" 23 80 13 "${items[@]}" 3>&1 1>&2 2>&3) || choice=0
-    echo "$choice"
-  else
-    {
-      echo
-      echo "$title - $text"
-      for ((i = 0; i < ${#items[@]}; i += 2)); do
-        printf '  %s) %s\n' "${items[i]}" "${items[i+1]}"
-      done
-    } >&2
-    read -r -p "$(t option_q)" choice <"$TTY"
-    echo "$choice"
+    choice=$(dialog --clear --no-cancel --ok-label "$(t ok)" --title "$title" --menu "$text" 0 0 0 "${items[@]}" 3>&1 1>&2 2>&3)
+    if [ $? -eq 0 ] && [ -n "$choice" ]; then
+      echo "$choice"
+      return
+    fi
   fi
+  {
+    echo
+    echo "$title - $text"
+    for ((i = 0; i < ${#items[@]}; i += 2)); do
+      printf '  %s) %s\n' "${items[i]}" "${items[i+1]}"
+    done
+  } >&2
+  read -r -p "$(t option_q)" choice <"$TTY"
+  echo "$choice"
 }
 
 # run SCRIPT [ARGS...]  runs a script of the repository and waits
