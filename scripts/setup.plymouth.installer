@@ -1,0 +1,193 @@
+#!/bin/bash
+#BLURB="Install the Plymouth splash on Slackware 15 or 16"
+#
+# Script: setup.plymouth.installer
+# Description: Installs the Soplos Plymouth theme and hooks it into the init
+#              scripts of Slackware by patching them, never by replacing them,
+#              so whatever Slackware changes in rc.S and rc.6 is kept. The
+#              release (15 or 16) is read from /etc/slackware-version and picks
+#              the patches in 15/patches or 16/patches.
+# Author: [SoplosLinux]
+# Version: 2.0
+#
+# Status: not tested on a real Slackware yet. The patches were checked against
+# sysvinit-scripts 15.0-8 and 16.0-12, and the installer in a fake root. Take a
+# snapshot first.
+#
+# Requirements:
+#   - Plymouth installed (for example from SlackBuilds.org)
+#   - GRUB as the boot loader
+#   - Slackware 15 only: an initrd built once before (/boot/initrd-tree exists)
+#   - run from the repository:  ./scripts/setup.plymouth.installer
+#
+# Every file that is changed is first copied to FILE.pre-plymouth, and only
+# if that copy does not exist yet, so running the script twice never loses
+# the original.
+#
+# Environment (all optional, used for tests):
+#   ROOT      install into this directory tree instead of /
+#   RELEASE   15 or 16, instead of reading /etc/slackware-version
+
+set -u
+ROOT=${ROOT:-}
+# su without a dash leaves the sbin folders out of PATH
+PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+SHARED=$REPO/15/plymouth
+HOOK=$REPO/16/etc/geninitrd.d/post-install/grub-update.sh
+
+die() { echo "Error: $*" >&2; exit 1; }
+
+release() {
+  sed -n 's/^Slackware \([0-9][0-9]*\)\..*/\1/p' "$ROOT/etc/slackware-version" 2> /dev/null | head -n 1
+}
+
+REL=${RELEASE:-$(release)}
+case "$REL" in
+  15|16) ;;
+  *) die "could not tell the Slackware release from /etc/slackware-version. This installer exists for 15 and 16." ;;
+esac
+PATCHES=$REPO/$REL/patches
+
+if [ -z "$ROOT" ]; then
+  [ "$(id -u)" -eq 0 ] || die "this script must be run as root."
+  command -v plymouthd > /dev/null 2>&1 || die "Plymouth is not installed. Install it first (menu: Install software, Plymouth)."
+fi
+command -v patch > /dev/null 2>&1 || die "the patch command is missing."
+[ -d "$SHARED/usr/share/plymouth/themes/slack" ] || die "run this script from the repository."
+[ -d "$PATCHES" ] || die "no patches for Slackware $REL in $PATCHES."
+
+if [ "$REL" = "15" ]; then
+  # The splash binaries go into the initrd tree, which must exist already
+  [ -d "$ROOT/boot/initrd-tree" ] \
+    || die "$ROOT/boot/initrd-tree not found. Build an initrd first (see /usr/share/mkinitrd/mkinitrd_command_generator.sh)."
+  if [ -z "$ROOT" ]; then
+    [ -x /usr/libexec/plymouth/plymouth-populate-initrd ] \
+      || die "plymouth-populate-initrd not found. Is Plymouth installed correctly?"
+  fi
+fi
+
+backup() {
+  [ -e "$1" ] && [ ! -e "$1.pre-plymouth" ] && cp -p "$1" "$1.pre-plymouth"
+  return 0
+}
+
+# ini_set FILE KEY VALUE  changes KEY=VALUE in place, or adds it under [Daemon]
+ini_set() {
+  if grep -q "^$2=" "$1"; then
+    sed -i "s/^$2=.*/$2=$3/" "$1"
+  else
+    sed -i "/^\[Daemon\]/a $2=$3" "$1"
+  fi
+}
+
+# 1. Check that both patches apply before changing anything
+echo "Checking that the init script patches apply (Slackware $REL)..."
+for name in rc.S rc.6; do
+  file=$ROOT/etc/rc.d/$name
+  [ -e "$file" ] || die "$file not found."
+  if grep -q "rc.plymouth" "$file"; then
+    echo "  $name already patched, skipping"
+    continue
+  fi
+  (cd "${ROOT:-/}" && patch -p0 --dry-run -s < "$PATCHES/$name.patch") \
+    || die "$name does not match the Slackware $REL version this patch was made for. Nothing was changed."
+done
+
+# 2. Theme, defaults and service script
+echo "Installing the theme and the service script..."
+mkdir -p "$ROOT/usr/share/plymouth/themes" "$ROOT/etc/rc.d"
+cp -r "$SHARED/usr/share/plymouth/themes/slack" "$ROOT/usr/share/plymouth/themes/"
+defaults=$ROOT/usr/share/plymouth/plymouthd.defaults
+if [ -e "$defaults" ]; then
+  backup "$defaults"
+  ini_set "$defaults" Theme slack
+  ini_set "$defaults" ShowDelay 0
+  ini_set "$defaults" DeviceTimeout 5
+else
+  cp "$SHARED/usr/share/plymouth/plymouthd.defaults" "$defaults"
+fi
+cp "$SHARED/etc/rc.d/rc.plymouth" "$ROOT/etc/rc.d/rc.plymouth"
+chmod 755 "$ROOT/etc/rc.d/rc.plymouth"
+
+# 3. Stop the splash when the system is up: rc.M runs rc.sysvinit, which runs
+# the K* scripts of the runlevel, 3 (text login) or 4 (graphical login). Slackware
+# 15 also had it started from the shutdown runlevels, which is kept as it was.
+links="rc3.d/K99plymouth rc4.d/K99plymouth"
+[ "$REL" = "15" ] && links="$links rc0.d/S00plymouth rc6.d/S00plymouth"
+for link in $links; do
+  dir=$ROOT/etc/rc.d/${link%/*}
+  if [ -d "$dir" ] && [ ! -L "$ROOT/etc/rc.d/$link" ]; then
+    ln -s /etc/rc.d/rc.plymouth "$ROOT/etc/rc.d/$link"
+  fi
+done
+
+# 4. Patch the init scripts
+echo "Patching the init scripts..."
+for name in rc.S rc.6; do
+  file=$ROOT/etc/rc.d/$name
+  grep -q "rc.plymouth" "$file" && continue
+  backup "$file"
+  (cd "${ROOT:-/}" && patch -p0 -s < "$PATCHES/$name.patch") || die "patching $name failed."
+done
+
+# 5. GRUB: quiet splash on the kernel command line. The file is edited, not
+# replaced: it keeps the resolution, the timeout and everything else.
+grubdef=$ROOT/etc/default/grub
+if [ -e "$grubdef" ]; then
+  backup "$grubdef"
+  if ! grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef"; then
+    echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> "$grubdef"
+    echo "Added GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash\"."
+  else
+    for word in quiet splash; do
+      if ! grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef" | grep -qw "$word"; then
+        sed -i "s/^\(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\)\"/\1 $word\"/; s/^GRUB_CMDLINE_LINUX_DEFAULT=\" /GRUB_CMDLINE_LINUX_DEFAULT=\"/" "$grubdef"
+        if grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grubdef" | grep -qw "$word"; then
+          echo "Added $word to GRUB_CMDLINE_LINUX_DEFAULT."
+        else
+          echo "Warning: could not add $word to GRUB_CMDLINE_LINUX_DEFAULT, add it by hand."
+        fi
+      fi
+    done
+  fi
+else
+  echo "Warning: $grubdef not found, add 'quiet splash' to your boot loader by hand."
+fi
+
+# 6. Slackware 15: put the Plymouth binaries into the initrd tree and rebuild.
+# The tree must survive the rebuild (CLEAR_TREE="0"). Nothing else in
+# mkinitrd.conf is touched and load_kernel_modules is left to mkinitrd.
+if [ "$REL" = "15" ]; then
+  conf=$ROOT/etc/mkinitrd.conf
+  if [ ! -e "$conf" ] && [ -e "$conf.sample" ]; then
+    cp "$conf.sample" "$conf"
+  fi
+  [ -e "$conf" ] || : > "$conf"
+  backup "$conf"
+  if grep -q '^CLEAR_TREE=' "$conf"; then
+    sed -i 's/^CLEAR_TREE=.*/CLEAR_TREE="0"/' "$conf"
+  else
+    echo 'CLEAR_TREE="0"' >> "$conf"
+  fi
+  if [ -z "$ROOT" ]; then
+    echo "Adding Plymouth to the initrd tree and rebuilding the initrd..."
+    /usr/libexec/plymouth/plymouth-populate-initrd -t /boot/initrd-tree || die "plymouth-populate-initrd failed."
+    mkinitrd -F || die "mkinitrd failed."
+  fi
+fi
+
+# 7. Slackware 16: GRUB hook for kernel installs (geninitrd runs it)
+if [ "$REL" = "16" ] || [ -d "$ROOT/etc/geninitrd.d" ]; then
+  mkdir -p "$ROOT/etc/geninitrd.d/post-install"
+  cp "$HOOK" "$ROOT/etc/geninitrd.d/post-install/grub-update.sh"
+  chmod 755 "$ROOT/etc/geninitrd.d/post-install/grub-update.sh"
+fi
+
+# 8. Regenerate the GRUB menu now
+if [ -z "$ROOT" ] && [ -d /boot/grub ]; then
+  if command -v grub-update > /dev/null 2>&1; then grub-update; else grub-mkconfig -o /boot/grub/grub.cfg; fi
+fi
+
+echo "Done. Reboot to see the splash."
+echo "Originals were saved with the .pre-plymouth suffix."

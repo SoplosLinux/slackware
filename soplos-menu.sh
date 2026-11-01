@@ -73,6 +73,7 @@ tr_add unknown "unknown" "desconocida"
 tr_add unknown_opt "Unknown option:" "Opción desconocida:"
 
 tr_add m_text "Slackware" "Slackware"
+tr_add m_hint "on a new install, go from 1 to 6" "en una instalación nueva, de la 1 a la 6"
 tr_add m1 "Clean Plasma: remove what is not needed" "Limpiar Plasma: quitar lo que no hace falta"
 tr_add m2 "First steps: runlevel, language, resolution, shortcuts" "Primeros pasos: nivel de arranque, idioma, resolución, atajos"
 tr_add mP "Packages (slackpkg): mirror, update, upgrade, install-new" "Paquetes (slackpkg): mirror, update, upgrade, install-new"
@@ -125,7 +126,14 @@ tr_add u5_confirm "Delete a user?\n\nYou will be asked which one and to type the
 tr_add mir_title "Slackpkg mirror" "Mirror de slackpkg"
 tr_add mir_text "Choose the mirror. Then run Update (option 2) to read its package lists." "Elige el mirror. Después ejecuta Update (opción 2) para leer sus listas de paquetes."
 tr_add mir_keep "Keep the mirror already set" "Mantener el mirror que ya hay"
-
+tr_add mir_official "Official (mirrors.slackware.com), finds a nearby mirror: recommended" "Oficial (mirrors.slackware.com), busca un mirror cercano: recomendado"
+tr_add mir_country "Pick a mirror by country (all the ones slackpkg knows)" "Elegir un mirror por país (todos los que conoce slackpkg)"
+tr_add mir_custom "Type an address" "Escribir una dirección"
+tr_add mir_country_text "Country" "País"
+tr_add mir_pick_text "Mirrors in" "Mirrors en"
+tr_add mir_url_ask "Address of the mirror (https://...): " "Dirección del mirror (https://...): "
+tr_add mir_nolist "No list of mirrors was found on this system. Use the official one or type an address." "No se encontró ninguna lista de mirrors en este sistema. Usa el oficial o escribe una dirección."
+tr_add m7_only15 "This build is only for Slackware 15." "Esta compilación es solo para Slackware 15."
 tr_add s_title "Install software" "Instalar software"
 tr_add s_text "Things Slackware does not ship" "Lo que Slackware no incluye"
 tr_add s1 "sbopkg (SlackBuilds.org installer)" "sbopkg (instalador de SlackBuilds.org)"
@@ -147,7 +155,7 @@ tr_add g_confirm "Install /etc/geninitrd.d/post-install/grub-update.sh?\n\nIt re
 tr_add g_done "Hook installed." "Hook instalado."
 
 tr_add p_noversion "Could not detect the Slackware version from /etc/slackware-version. This installer exists for Slackware 15 and 16." "No se pudo detectar la versión de Slackware en /etc/slackware-version. Este instalador existe para Slackware 15 y 16."
-tr_add p_confirm "Install the Plymouth splash for Slackware %s?\n\nIt replaces or patches /etc/rc.d/rc.S and rc.6 and edits the GRUB configuration. Take a snapshot or a backup first." "¿Instalar el splash de Plymouth para Slackware %s?\n\nSustituye o parchea /etc/rc.d/rc.S y rc.6 y edita la configuración de GRUB. Haz antes una instantánea o una copia de seguridad."
+tr_add p_confirm "Install the Plymouth splash for Slackware %s?\n\nIt patches /etc/rc.d/rc.S and rc.6 and edits the GRUB configuration. Each file is saved as FILE.pre-plymouth. Take a snapshot or a backup first." "¿Instalar el splash de Plymouth para Slackware %s?\n\nParchea /etc/rc.d/rc.S y rc.6 y edita la configuración de GRUB. Cada archivo se guarda como ARCHIVO.pre-plymouth. Haz antes una instantánea o una copia de seguridad."
 tr_add orphans_done "Open /root/orphans.txt to read the report." "Abre /root/orphans.txt para leer el informe."
 tr_add k_confirm "This builds kernel 6.8.9 from kernel.org. It takes a long time, opens make menuconfig and uses /dev/sda3 as the root device.\n\nThe script was written for Slackware 15." "Esto compila el kernel 6.8.9 desde kernel.org. Tarda mucho, abre make menuconfig y usa /dev/sda3 como dispositivo raíz.\n\nEl script se escribió para Slackware 15."
 tr_add refreshed "Scripts downloaded again." "Scripts descargados de nuevo."
@@ -156,8 +164,12 @@ tr_add refreshed "Scripts downloaded again." "Scripts descargados de nuevo."
 
 die() { echo "Error: $*" >&2; exit 1; }
 
+# Worked out once at start: asking [ -t 1 ] each time is false inside $(...),
+# where the menus run, and the lists would never use dialog.
+HAVE_DIALOG=0
+command -v dialog > /dev/null 2>&1 && [ -t 0 ] && [ -t 2 ] && HAVE_DIALOG=1
 use_dialog() {
-  command -v dialog > /dev/null 2>&1 && [ -t 1 ]
+  [ "$HAVE_DIALOG" -eq 1 ]
 }
 
 pick_language() {
@@ -200,12 +212,19 @@ fetch_repo() {
         */soplos-slackware) ;;
         *) die "refusing to delete $WORK: its name must end in /soplos-slackware" ;;
       esac
-      rm -rf "$WORK"
-      mkdir -p "$REPO"
-      download "$URL" "$WORK/repo.tar.gz" || die "$(t err_dl) $URL"
+      # Download and unpack beside the current copy and swap at the end, so a
+      # failed download (no network) leaves the working copy untouched.
+      local fresh
+      mkdir -p "$WORK"
+      fresh=$(mktemp -d "$WORK/fresh.XXXXXX") || die "mktemp failed."
+      mkdir -p "$fresh/repo"
+      download "$URL" "$fresh/repo.tar.gz" || { rm -rf "$fresh"; die "$(t err_dl) $URL"; }
       # -m: keep the current time, the clock of a VM is often behind the archive
-      tar -xzmf "$WORK/repo.tar.gz" -C "$REPO" --strip-components=1 || die "$(t err_unpack)"
-      rm -f "$WORK/repo.tar.gz"
+      tar -xzmf "$fresh/repo.tar.gz" -C "$fresh/repo" --strip-components=1 --no-same-owner || { rm -rf "$fresh"; die "$(t err_unpack)"; }
+      [ -f "$fresh/repo/scripts/setup.debloat" ] || { rm -rf "$fresh"; die "$(t err_repo)"; }
+      rm -rf "$REPO"
+      mv "$fresh/repo" "$REPO"
+      rm -rf "$fresh"
     fi
   fi
   [ -f "$REPO/scripts/setup.debloat" ] || die "$(t err_repo)"
@@ -296,27 +315,63 @@ menu_clean() {
   done
 }
 
+# Asks for a country and then for one of its mirrors, both read from the list
+# that slackpkg ships (setup.firststeps mirrorlist). Leaves the address in
+# PICKED, empty if the user goes back. It is not called inside $(...) because
+# clear and the dialog boxes must reach the screen.
+PICKED=
+pick_mirror_by_country() {
+  local line i c urls=() items=() names=() counts=() n
+  PICKED=
+  while IFS=$'\t' read -r c n; do
+    [ -n "$c" ] || continue
+    names+=("$c"); counts+=("$n")
+  done < <(bash "$REPO/scripts/setup.firststeps" mirrorlist 2> /dev/null)
+  if [ "${#names[@]}" -eq 0 ]; then
+    say mir_nolist
+    return
+  fi
+  for ((i = 0; i < ${#names[@]}; i++)); do
+    items+=("$((i + 1))" "${names[i]} [${counts[i]}]")
+  done
+  c=$(choose "$(t mir_title)" "$(t mir_country_text)" "${items[@]}" 0 "$(t back)")
+  clear
+  case "$c" in
+    ''|0|*[!0-9]*) return ;;
+  esac
+  [ "$c" -le "${#names[@]}" ] || return
+  c=${names[c - 1]}
+  while IFS= read -r line; do
+    [ -n "$line" ] && urls+=("$line")
+  done < <(bash "$REPO/scripts/setup.firststeps" mirrorlist "$c" 2> /dev/null)
+  items=()
+  for ((i = 0; i < ${#urls[@]}; i++)); do
+    items+=("$((i + 1))" "${urls[i]}")
+  done
+  c=$(choose "$(t mir_title)" "$(t mir_pick_text) $c" "${items[@]}" 0 "$(t back)")
+  clear
+  case "$c" in
+    ''|0|*[!0-9]*) return ;;
+  esac
+  [ "$c" -le "${#urls[@]}" ] || return
+  PICKED=${urls[c - 1]}
+}
+
 # Asks which slackpkg mirror to use and sets it
 choose_mirror() {
   local m base
   m=$(choose "$(t mir_title)" "$(t mir_text)" \
-    1 "Official (mirrors.slackware.com)" \
-    2 "United Kingdom (slackware.uk)" \
-    3 "Germany (ftp.gwdg.de)" \
-    4 "Denmark (mirrors.dotsrc.org)" \
-    5 "United States (ftp.osuosl.org)" \
-    6 "Netherlands (slackware.nl)" \
-    7 "$(t mir_keep)" \
+    1 "$(t mir_official)" \
+    2 "$(t mir_country)" \
+    3 "$(t mir_custom)" \
+    4 "$(t mir_keep)" \
     0 "$(t back)")
   clear
   case "$m" in
     1) base=https://mirrors.slackware.com/slackware ;;
-    2) base=https://slackware.uk/slackware ;;
-    3) base=https://ftp.gwdg.de/pub/linux/slackware ;;
-    4) base=https://mirrors.dotsrc.org/slackware ;;
-    5) base=https://ftp.osuosl.org/pub/slackware ;;
-    6) base=https://slackware.nl/slackware ;;
-    7) base= ;;
+    2) pick_mirror_by_country; base=$PICKED; [ -n "$base" ] || return ;;
+    3) read -r -p "$(t mir_url_ask)" base <"$TTY"; [ -n "$base" ] || return ;;
+    4) base= ;;
     *) return ;;
   esac
   run scripts/setup.firststeps mirror $base
@@ -418,7 +473,7 @@ run_plymouth() {
     *) say p_noversion; return ;;
   esac
   confirm p_confirm "$REL" || return
-  run "$REL/scripts/setup.plymouth.installer"
+  run scripts/setup.plymouth.installer
 }
 
 # Creates the command and the menu entry that start the downloaded menu, and
@@ -434,7 +489,7 @@ Name=Soplos Slackware Tools
 Name[es]=Herramientas Soplos para Slackware
 Comment=Clean Plasma, first steps, Plymouth, Flatpak and more
 Comment[es]=Limpiar Plasma, primeros pasos, Plymouth, Flatpak y más
-Exec=su -c $BIN
+Exec=su -l -c $BIN
 Icon=preferences-system
 Terminal=true
 Categories=System;
@@ -489,29 +544,37 @@ main() {
   fi
   install_launcher
   REL=$(release)
-  local c rel_text
+  local c rel_text kernel_item=()
+  # The kernel 6.8.9 build was written for Slackware 15: offered only there
+  [ "$REL" = "15" ] && kernel_item=(K "$(t m7)")
+  # Entries 1 to 6 follow the order of a fresh install; the rest are tools
+  # for later, so the menu reads top to bottom as a recipe.
   while true; do
-    rel_text="$(t m_text) ${REL:-$(t unknown)}"
+    rel_text="$(t m_text) ${REL:-$(t unknown)} - $(t m_hint)"
     c=$(choose "Soplos Linux" "$rel_text" \
-      1 "$(t m1)" 2 "$(t m2)" 3 "$(t m3)" 4 "$(t m4)" 5 "$(t m5)" 6 "$(t m6)" \
-      7 "$(t m7)" 8 "$(t m8)" 9 "$(t m9)" P "$(t mP)" U "$(t mU)" D "$(t mD)" L "$(t mL)" 0 "$(t mq)")
+      1 "$(t m2)" 2 "$(t mP)" 3 "$(t m1)" 4 "$(t m3)" 5 "$(t m4)" 6 "$(t m5)" \
+      7 "$(t mU)" 8 "$(t m6)" 9 "$(t mD)" \
+      "${kernel_item[@]}" T "$(t m8)" R "$(t m9)" L "$(t mL)" 0 "$(t mq)")
     clear
     case "$c" in
-      1) menu_clean ;;
-      2) menu_firststeps ;;
-      3) menu_software ;;
-      4) run_plymouth ;;
-      5) menu_grub ;;
-      6) bash "$REPO/scripts/setup.orphans" -o /root/orphans.txt; t orphans_done; pause ;;
-      7) confirm k_confirm && run 15/scripts/setup.update.kernel-6.8.9s ;;
-      8)
+      1) menu_firststeps ;;
+      2) menu_packages ;;
+      3) menu_clean ;;
+      4) menu_software ;;
+      5) run_plymouth ;;
+      6) menu_grub ;;
+      7) menu_users ;;
+      8) bash "$REPO/scripts/setup.orphans" -o /root/orphans.txt; t orphans_done; pause ;;
+      9) run scripts/setup.diagnose ;;
+      K|k)
+        if [ "$REL" != "15" ]; then say m7_only15
+        elif confirm k_confirm; then run 15/scripts/setup.update.kernel-6.8.9s; fi
+        ;;
+      T|t)
         if [ "$LC_MENU" = "es" ]; then ${PAGER:-less} "$REPO/docs/plymouth-tutorial.es.txt"
         else ${PAGER:-less} "$REPO/docs/plymouth-tutorial.en.txt"; fi
         ;;
-      9) fetch_repo refresh; say refreshed; [ -z "$LOCAL" ] && restart_from_repo ;;
-      P|p) menu_packages ;;
-      U|u) menu_users ;;
-      D|d) run scripts/setup.diagnose ;;
+      R|r) fetch_repo refresh; say refreshed; [ -z "$LOCAL" ] && restart_from_repo ;;
       L|l) pick_language ;;
       0|"") break ;;
       *) echo "$(t unknown_opt) $c" ;;
@@ -522,5 +585,7 @@ main() {
 
 [ "$LC_MENU" = "es" ] || LC_MENU=en
 [ "$(id -u)" -eq 0 ] || die "$(t err_root)"
+# su without a dash leaves the sbin folders out of PATH; the scripts inherit this
+export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 export SOPLOS_LANG=$LC_MENU
 main "$@"

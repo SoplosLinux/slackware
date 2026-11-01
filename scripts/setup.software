@@ -18,12 +18,14 @@
 # Usage: setup.software ACTION
 #   sbopkg         install sbopkg and download the SlackBuilds.org index
 #   plymouth       build and install Plymouth (and dracut on Slackware 15)
-#   open-vm-tools  build and install open-vm-tools for VMware guests
+#   open-vm-tools  build and install open-vm-tools (and libmspack, libdnet) for VMware guests
 #   flatpak        install Flatpak (AlienBOB) and add the Flathub repository
 #   discover       install KDE Discover (AlienBOB) together with Flatpak
 
 set -u
 ROOT=${ROOT:-}
+# su without a dash leaves the sbin folders out of PATH
+PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 PKGDIR=${PKGDIR:-$ROOT/var/log/packages}
 SBOPKG_VERSION=0.38.3
 SBOPKG_URL=https://github.com/sbopkg/sbopkg/releases/download/$SBOPKG_VERSION/sbopkg-$SBOPKG_VERSION-noarch-1_wsr.tgz
@@ -91,18 +93,34 @@ action_plymouth() {
 }
 
 action_open_vm_tools() {
-  sbo_install open-vm-tools
+  # Its SlackBuild runs autoreconf -i, which needs autoconf, automake, libtool
+  # and gettext-tools. The debloat keeps them for this reason; stop early if
+  # they were removed some other way.
+  local t missing=()
+  for t in autoreconf automake libtoolize; do
+    command -v "$t" > /dev/null 2>&1 || missing+=("$t")
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    die "${missing[*]} not found. open-vm-tools needs autoconf, automake, libtool and gettext-tools: slackpkg install autoconf automake libtool gettext-tools"
+  fi
+  # sbopkg does not resolve dependencies on its own: libmspack and libdnet
+  # (REQUIRES of the SlackBuild) are built first, in this order.
+  sbo_install libmspack libdnet open-vm-tools
   command -v vmtoolsd > /dev/null 2>&1 || die "vmtoolsd not found after the install."
 
-  # System daemon at boot
-  local rclocal=$ROOT/etc/rc.d/rc.local
+  # System daemon at boot: the rc.vmtoolsd of the SlackBuild (it checks that
+  # this is a VMware guest before it starts). It is installed without the
+  # execute bit, as every Slackware rc script, and started from rc.local.
+  local rcvm=$ROOT/etc/rc.d/rc.vmtoolsd rclocal=$ROOT/etc/rc.d/rc.local
+  [ -e "$rcvm" ] || die "$rcvm not found after the install."
+  chmod 755 "$rcvm"
   mkdir -p "$(dirname "$rclocal")"
   touch "$rclocal"
-  if ! grep -q 'vmtoolsd -b' "$rclocal"; then
+  if ! grep -qE 'rc\.vmtoolsd|vmtoolsd -b' "$rclocal"; then
     {
       echo
       echo "# VMware guest services"
-      echo "[ -x /usr/bin/vmtoolsd ] && /usr/bin/vmtoolsd -b /var/run/vmtoolsd.pid"
+      echo "[ -x /etc/rc.d/rc.vmtoolsd ] && /etc/rc.d/rc.vmtoolsd start"
     } >> "$rclocal"
   fi
   chmod 755 "$rclocal"

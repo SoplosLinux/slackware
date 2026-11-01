@@ -4,30 +4,42 @@
 # Redirect stdout and stderr to /dev/null so no text is printed on the console
 exec >/dev/null 2>&1
 
-# Start the Plymouth daemon
-start_plymouth() {
-    /usr/sbin/plymouthd --pid-file=/run/plymouth/pid
+PLYMOUTHD=${PLYMOUTHD:-/usr/sbin/plymouthd}
+PLYMOUTH=${PLYMOUTH:-/usr/bin/plymouth}
+PIDFILE=${PIDFILE:-/run/plymouth/pid}
+
+# Is the daemon already running?
+plymouth_running() {
+    [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
 }
 
-# Stop the Plymouth daemon
+# Start the Plymouth daemon. init sets RUNLEVEL: 0 is halt and 6 is reboot, so
+# the splash shows the shutdown or reboot variant of the theme there.
+start_plymouth() {
+    plymouth_running && return 0
+    case "$RUNLEVEL" in
+        0) mode=shutdown ;;
+        6) mode=reboot ;;
+        *) mode=boot ;;
+    esac
+    "$PLYMOUTHD" --mode="$mode" --pid-file="$PIDFILE"
+}
+
+# Stop the Plymouth daemon: ask it to quit, so it gives the console back, and
+# kill it only if it is still there afterwards
 stop_plymouth() {
-    if [ -f /run/plymouth/pid ]; then
-        pid=$(cat /run/plymouth/pid)
-        if [ -n "$pid" ]; then
-            kill "$pid" >/dev/null 2>&1
-            rm /run/plymouth/pid >/dev/null 2>&1
-        fi
+    plymouth_running || return 0
+    pid=$(cat "$PIDFILE")
+    "$PLYMOUTH" quit
+    if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid"
     fi
+    rm -f "$PIDFILE"
 }
 
 # Show the Plymouth splash screen
 show_plymouth_splash() {
-    /usr/bin/plymouth --show-splash
-}
-
-# Hide the Plymouth splash screen
-hide_plymouth_splash() {
-    /usr/bin/plymouth --hide-splash
+    "$PLYMOUTH" --show-splash
 }
 
 case "$1" in
@@ -38,7 +50,6 @@ case "$1" in
         ;;
     stop)
         echo "Stopping Plymouth service..."
-        hide_plymouth_splash
         stop_plymouth
         ;;
     restart)

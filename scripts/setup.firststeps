@@ -12,6 +12,8 @@
 # Usage: setup.firststeps ACTION
 #   runlevel4   boot into the graphical login (runlevel 4)
 #   mirror [BASE]  set the slackpkg mirror (no BASE: show the current one)
+#   mirrorlist [COUNTRY]  list the mirrors slackpkg knows: the countries, or the
+#                  addresses of one country (data for the menu, changes nothing)
 #   update         refresh the package lists, upgrade nothing
 #   upgrade        upgrade all installed packages with slackpkg (slow)
 #   installnew     install the packages added since the last update
@@ -28,10 +30,12 @@
 set -u
 ROOT=${ROOT:-}
 TTY=${SOPLOS_TTY:-/dev/tty}
+# su without a dash leaves the sbin folders out of PATH
+PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 
 die() { echo "Error: $*" >&2; exit 1; }
 
-[ "$(id -u)" -eq 0 ] || die "this script must be run as root."
+[ "$(id -u)" -eq 0 ] || [ "${1:-}" = "mirrorlist" ] || die "this script must be run as root."
 
 backup() {
   [ -e "$1" ] && [ ! -e "$1.pre-soplos" ] && cp -p "$1" "$1.pre-soplos"
@@ -88,6 +92,42 @@ action_mirror() {
   sed -i 's/^\([^#[:space:]]\)/#\1/' "$mirrors"
   echo "$url" >> "$mirrors"
   echo "Mirror set to $url"
+}
+
+# Lists the mirrors that slackpkg itself ships, so the menu offers all of them
+# and not a short list of ours. The list is the sample in the slackpkg
+# documentation, with /etc/slackpkg/mirrors as the second choice; both group
+# the addresses by country and carry one block per release. Only http and https
+# addresses of the tree of this release are used.
+#   mirrorlist            one line per country: NAME<TAB>number of mirrors
+#   mirrorlist COUNTRY    the addresses of that country, one per line
+#   mirrorlist OFFICIAL   the redirector of slackware.com
+action_mirrorlist() {
+  local want=${1:-} src tree f
+  case "$(release)" in
+    15) tree=slackware64-15.0 ;;
+    *)  tree=slackware64-current ;;
+  esac
+  src=
+  for f in "$ROOT"/usr/doc/slackpkg-*/mirrors-x86_64.sample "$ROOT/etc/slackpkg/mirrors"; do
+    [ -r "$f" ] && grep -q "/$tree/" "$f" && { src=$f; break; }
+  done
+  [ -n "$src" ] || die "no list of mirrors found for $tree. Use the official one or type an address."
+  awk -v tree="$tree" -v want="$want" '
+    /^#-+[ \t]*$/ { c = ""; next }
+    /^# [A-Z][^()]* \([A-Z][A-Z]\)[ \t]*$/ { c = $0; sub(/^# /, "", c); sub(/[ \t]+$/, "", c); next }
+    /^#? *https?:\/\// {
+      u = $0; sub(/^#? */, "", u); sub(/[ \t]+$/, "", u)
+      if (u !~ ("/" tree "/$")) next
+      if (c == "" && u ~ /^https:\/\/mirrors\.slackware\.com\//) k = "OFFICIAL"
+      else if (c == "") next
+      else k = c
+      if (seen[u]++) next
+      if (want == "") { n[k]++; if (!(k in first)) { first[k] = 1; order[++m] = k } }
+      else if (k == want) print u
+    }
+    END { if (want == "") for (i = 1; i <= m; i++) if (order[i] != "OFFICIAL") print order[i] "\t" n[order[i]] }
+  ' "$src" | if [ -z "$want" ]; then sort; else cat; fi
 }
 
 # Refreshes the package lists. Downloads a few MB, upgrades nothing.
@@ -328,6 +368,7 @@ action_userdirs() {
 case "${1:-}" in
   runlevel4)  action_runlevel4 ;;
   mirror)     action_mirror "${2:-}" ;;
+  mirrorlist) action_mirrorlist "${2:-}" ;;
   update)     action_update ;;
   upgrade)    action_upgrade ;;
   installnew) action_installnew ;;

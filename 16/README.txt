@@ -1,9 +1,12 @@
 Slackware 16 (-current)
 
 Status: written against the packages of Slackware-current of 26 October 2026
-(sysvinit-scripts 16.0-10, mkinitrd 1.4.11-81). The patches were checked to
-apply to those exact files, and the installer was tested in a fake root. It
-has not been run on a real Slackware 16 yet.
+(sysvinit-scripts 16.0-10, mkinitrd 1.4.11-81) and checked again on 1 November
+2026 against sysvinit-scripts 16.0-12: rc.S applies cleanly and rc.6 with a
+fuzz of 1 (the kexec code around the end of rc.6 changed in -8, -10, -11 and
+-12). The installer was tested in a fake root. It has not been run on a real
+Slackware 16 yet. Run the dry run again on the day you need it: patch --dry-run
+-p0 < 16/patches/rc.6.patch inside a copy of the current /etc/rc.d.
 
 Contents
 
@@ -20,10 +23,11 @@ Contents
       This one regenerates the GRUB menu, which Slackware does not do on its
       own.
 
-  scripts/setup.plymouth.installer
+  ../scripts/setup.plymouth.installer
+      One installer for Slackware 15 and 16 (it reads /etc/slackware-version).
       Installs the theme, the service script and the patches, adds
-      "quiet splash" to the GRUB command line and installs the hook. Every
-      file it changes is first saved as FILE.pre-plymouth.
+      "quiet splash" to the GRUB command line and, on 16, installs the hook.
+      Every file it changes is first saved as FILE.pre-plymouth.
 
 Differences from Slackware 15
 
@@ -36,9 +40,10 @@ Differences from Slackware 15
   - /etc/default/grub is edited, not replaced, because Slackware 16 ships its
     own defaults (GRUB 2.16, Spleen font, GRUB_GFXMODE=0x0).
 
-  - /etc/mkinitrd.conf and load_kernel_modules are not touched. On 15 the
+  - /etc/mkinitrd.conf and load_kernel_modules are not touched. The old 15
     installer overwrote load_kernel_modules with an empty template, which
-    removes the module loading of the initrd.
+    removes the module loading of the initrd; the unified installer no longer
+    does, and on 15 it only sets CLEAR_TREE="0" in mkinitrd.conf.
 
 Pending
 

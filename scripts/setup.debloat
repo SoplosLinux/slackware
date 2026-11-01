@@ -35,6 +35,8 @@
 #   setup.debloat             remove the default sections, asking once
 #   setup.debloat -o printing remove the default sections plus printing
 
+# su without a dash leaves the sbin folders out of PATH
+PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
 PKGDIR=${PKGDIR:-/var/log/packages}
 LOG=${LOG:-/var/log/setup.debloat.log}
 DEPS=${DEPS:-$(cd "$(dirname "$0")/.." 2> /dev/null && pwd)/data/deps.tsv}
@@ -160,14 +162,16 @@ add_section kde-extra on "Other KDE applications and developer tools" \
 
 # Every package of the Slackware "d" series except the basic toolchain that is
 # enough to build a kernel: gcc gcc-g++ binutils make bison flex m4 perl
-# python3 git kernel-headers pkgconf pahole llvm libtool guile dkms. The
-# dependency check below keeps any of these that an installed package needs
-# (for example gcc-gfortran for openblas, or lua for gnuplot).
+# python3 git kernel-headers pkgconf pahole llvm libtool guile dkms, plus
+# autoconf automake gettext-tools (about 27 MB): the SlackBuilds that the menu
+# builds afterwards, such as open-vm-tools, run autoreconf. cmake and meson do
+# go. The dependency check below keeps any of these that an installed package
+# needs (for example gcc-gfortran for openblas, or lua for gnuplot).
 add_section dev on "Development tools beyond a basic C and C++ toolchain" \
-  AMF-headers autoconf autoconf-archive automake cargo-c \
+  AMF-headers autoconf-archive cargo-c \
   cargo-vendor-filterer cbindgen ccache check clinfo clisp cmake corrosion \
   cscope cvs Cython ddd dev86 distcc doxygen gcc-gcobol gcc-gdc gcc-gfortran \
-  gcc-gm2 gcc-gnat gcc-go gcc-objc gcc-rust gdb gettext-tools gnucobol \
+  gcc-gm2 gcc-gnat gcc-go gcc-objc gcc-rust gdb gnucobol \
   google-go-lang googletest gperf gyp help2man icecream indent intltool jq \
   libgccjit lua luajit mercurial meson mold nasm ninja nv-codec-headers \
   opencl-headers oprofile p2c parallel patchelf pmake poke python-pip \

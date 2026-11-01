@@ -18,24 +18,29 @@ The first run installs it for good: the scripts go to
 `/usr/local/share/soplos-slackware`, the command `soplos-menu` goes to
 `/usr/local/bin` and an entry called "Soplos Slackware Tools" appears in the
 application launcher (it asks for the root password in a terminal). The file you
-downloaded is not needed any more, and an old copy of it always starts the
-newest menu. Option 9 of the menu downloads the scripts again, and
+downloaded is not needed any more: running it again opens the menu already
+installed. Key `R` of the menu fetches the latest scripts from GitHub, and
 `soplos-menu --uninstall` removes all of it.
 
-The menu has these entries; the ones with a list of steps open a submenu (`P` Packages, `U` Users):
+The menu reads top to bottom as a recipe for a new install: entries 1 to 6 are
+the usual order, the rest are tools for later. Entries with a list of steps open a
+submenu.
 
-| Entry | What it does |
-|---|---|
-| Clean Plasma | Preview or run the debloat, with or without the optional sections |
-| First steps | Runlevel 4, language, screen resolution, Spanish user folders, reset of the keyboard shortcuts |
-| Packages (slackpkg) | Each step on its own: choose the mirror, update (lists only), upgrade-all, install-new |
-| Users | List, create, give or take sudo, delete a user (refuses root, system users, logged-in users and the only regular user) |
-| Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
-| GRUB | Regenerate the menu now, or install the hook that does it on kernel updates (Slackware 16) |
-| Plymouth boot splash | Installer for Slackware 15 or 16, detected from `/etc/slackware-version` |
-| Library scanner | Report of library packages nobody uses |
-| Kernel 6.8.9 | The build from the video (Slackware 15) |
-| Tutorial | The Plymouth tutorial, in your language |
+| Key | Entry | What it does |
+|---|---|---|
+| 1 | First steps | Runlevel 4, language, screen resolution, Spanish user folders, reset of the keyboard shortcuts |
+| 2 | Packages (slackpkg) | Each step on its own: choose the mirror (the official redirector, or any of the mirrors slackpkg knows, by country, or an address you type), update (lists only), upgrade-all, install-new |
+| 3 | Clean Plasma | Preview or run the debloat, with or without the optional sections |
+| 4 | Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
+| 5 | Plymouth boot splash | Installer for Slackware 15 or 16, detected from `/etc/slackware-version` |
+| 6 | GRUB | Regenerate the menu now, or install the hook that does it on kernel updates (Slackware 16) |
+| 7 | Users | List, create, give or take sudo, delete a user (refuses root, system users, logged-in users and the only regular user) |
+| 8 | Library scanner | Report of library packages nobody uses |
+| 9 | Diagnose Plasma | Missing libraries and QML modules |
+| K | Kernel 6.8.9 | The build from the video (shown on Slackware 15 only) |
+| T | Tutorial | The Plymouth tutorial, in your language |
+| R | Download again | The latest scripts from GitHub |
+| L | Language | English or Spanish |
 
 The menu starts in English. Press `L` (Change the language) to switch it to
 Spanish, and again to go back. The scripts it launches print in English.
@@ -44,16 +49,18 @@ Nothing is installed until you choose an option and confirm it.
 
 Flatpak and Discover come from AlienBOB's ready-made packages
 (`slackware.uk/people/alien/slackbuilds`), checked against their MD5 file.
-Plymouth and open-vm-tools are built from SlackBuilds.org with sbopkg.
+Plymouth and open-vm-tools are built from SlackBuilds.org with sbopkg; open-vm-tools
+first builds its two dependencies, libmspack and libdnet, because sbopkg does not
+resolve them by itself.
 
 ## Layout
 
 | Folder | Contents |
 |---|---|
-| `15/` | Slackware 15.0: Plymouth files at their install paths, and its setup scripts (Plymouth installer, kernel 6.8.9, GRUB update) |
-| `16/` | Slackware 16 (-current): patches for `rc.S` and `rc.6`, a geninitrd hook that regenerates the GRUB menu on kernel installs, and its Plymouth installer. See `16/README.txt` |
+| `15/` | Slackware 15.0: the Plymouth theme and `rc.plymouth` (shared by both releases), the patches for `rc.S` and `rc.6`, and the older setup scripts (kernel 6.8.9, GRUB update) |
+| `16/` | Slackware 16 (-current): patches for `rc.S` and `rc.6` and a geninitrd hook that regenerates the GRUB menu on kernel installs. See `16/README.txt` |
 | `soplos-menu.sh` | The menu described above |
-| `scripts/` | Scripts valid for both releases: `setup.debloat` (clean Plasma install), `setup.orphans` (read-only library scanner), `setup.firststeps` and `setup.software` |
+| `scripts/` | Scripts valid for both releases: `setup.debloat` (clean Plasma install), `setup.orphans` (read-only library scanner), `setup.firststeps`, `setup.software` and `setup.plymouth.installer` |
 | `data/` | `deps.tsv`, the map of which Slackware package needs which, used by the debloat |
 | `tools/` | `gen-deps.py`, which rebuilds `data/deps.tsv` from a Slackware mirror |
 | `plasma-splash/` | KDE Plasma look-and-feel splash screen (Qt5, not tested on Plasma 6) |
@@ -73,7 +80,10 @@ unchecked, then run, as root:
 Optional sections (input methods, printing, documentation tools) are off by
 default; see `./scripts/setup.debloat -l`. The development section removes
 every package of the `d` series except the basic toolchain (gcc, g++, binutils,
-make, bison, flex, m4, perl, python3, git, kernel headers, llvm, libtool).
+make, bison, flex, m4, perl, python3, git, kernel headers, llvm, libtool) and
+autoconf, automake and gettext-tools (27 MB), which the SlackBuilds built later
+by the menu need (open-vm-tools runs `autoreconf`). cmake and meson are
+removed.
 
 It also removes Qt5 and the KDE 5 frameworks, which Plasma 6 does not use
 (about 600 MB; only `pinentry-qt5`, `simplescreenrecorder` and a few demos stop
@@ -104,13 +114,16 @@ nothing else to disk).
 
 ## Plymouth
 
-Slackware 15: run `15/scripts/setup.plymouth.installer` as root. It installs
-sbopkg, Plymouth and Dracut, then copies the files from `15/plymouth/` and
-rebuilds the initrd and the GRUB configuration. Each replaced file is backed
-up with a `.back` suffix.
-
-Slackware 16: install Plymouth first, then run
-`./16/scripts/setup.plymouth.installer` from a clone of this repository.
+Install Plymouth first (menu: Install software, Plymouth), then run
+`./scripts/setup.plymouth.installer` as root from the repository, or use the
+Plymouth entry of the menu. One installer serves both releases: it reads
+`/etc/slackware-version` and applies the patches of `15/patches` or
+`16/patches` to `rc.S` and `rc.6`. Nothing is replaced: the init scripts are
+patched, `/etc/default/grub` gets `quiet splash` added, and on Slackware 15 the
+initrd tree is kept (`CLEAR_TREE="0"` in `mkinitrd.conf`) and rebuilt with the
+Plymouth binaries. If a patch no longer matches the installed script, the
+installer stops before changing anything. Each file it changes is first saved
+as `FILE.pre-plymouth`.
 
 The manual procedure is described in the tutorial, available in
 [English](docs/plymouth-tutorial.en.txt) and
