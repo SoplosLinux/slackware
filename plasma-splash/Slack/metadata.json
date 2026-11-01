@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "SoplosLinux"
+            }
+        ],
+        "Description": "Slackware by Soplos Linux",
+        "Id": "Slack",
+        "License": "GPLv2+",
+        "Name": "Slackware",
+        "Version": "0.1",
+        "Website": "https://soploslinux.com"
+    }
+}

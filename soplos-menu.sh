@@ -510,28 +510,64 @@ install_plasma_splash() {
   local src="$REPO/plasma-splash/Slack"
   local dest=/usr/share/plasma/look-and-feel/Slack
   local kdeglobals=/etc/xdg/kdeglobals
-  [ -d "$src" ] || { echo "Error: $src not found in the repository." >&2; return 1; }
+
+  if [ ! -d "$src" ]; then
+    echo "Error: plasma-splash/Slack not found in the repository ($src)."
+    pause; return 1
+  fi
+
   echo "Installing Soplos Plasma splash screen..."
   mkdir -p /usr/share/plasma/look-and-feel
-  cp -r "$src" "$dest" || { echo "Error: could not copy theme files." >&2; return 1; }
-  echo "Theme copied to $dest."
-  # Set as system-wide default in /etc/xdg/kdeglobals
+  rm -rf "$dest"
+  if ! cp -r "$src" "$dest"; then
+    echo "Error: could not copy theme files to $dest."
+    pause; return 1
+  fi
+  echo "Splash screen installed to $dest."
+
+  # Install wallpapers
+  local wpdir="$REPO/artwork/wallpapers"
+  if [ -d "$wpdir" ]; then
+    echo "Installing wallpapers..."
+    while IFS= read -r -d '' wp; do
+      local name
+      name=$(basename "$wp" | sed 's/\.[^.]*$//')
+      local wpdest="/usr/share/wallpapers/Soplos $name"
+      mkdir -p "$wpdest/contents/images"
+      cp "$wp" "$wpdest/contents/images/"
+      local wpid
+      wpid=$(printf '%s' "soplos-$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+      cat > "$wpdest/metadata.json" << EOF
+{
+    "KPlugin": {
+        "Name": "Soplos $name",
+        "Id": "$wpid",
+        "License": "GPLv2+"
+    }
+}
+EOF
+      echo "  Wallpaper: $name"
+    done < <(find "$wpdir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.webp" \) -print0 | sort -z)
+  fi
+
+  # Set splash as system-wide default in /etc/xdg/kdeglobals
   mkdir -p "$(dirname "$kdeglobals")"
   if [ -f "$kdeglobals" ] && grep -q '^LookAndFeelPackage=' "$kdeglobals"; then
     sed -i 's/^LookAndFeelPackage=.*/LookAndFeelPackage=Slack/' "$kdeglobals"
   else
-    # Ensure [KDE] section exists
     if ! grep -q '^\[KDE\]' "$kdeglobals" 2>/dev/null; then
       printf '[KDE]\n' >> "$kdeglobals"
     fi
     sed -i '/^\[KDE\]/a LookAndFeelPackage=Slack' "$kdeglobals"
   fi
   echo "Set LookAndFeelPackage=Slack in $kdeglobals."
-  # Apply live if plasma-apply-lookandfeel is available
+
   if command -v plasma-apply-lookandfeel > /dev/null 2>&1; then
     plasma-apply-lookandfeel --apply Slack 2>/dev/null || true
   fi
+
   say s6_done
+  pause
 }
 
 menu_grub() {

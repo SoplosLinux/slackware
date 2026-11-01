@@ -1,61 +1,51 @@
 /*
- *   Copyright 2014 Marco Martin <mart@kde.org>
- *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License version 2,
- *   or (at your option) any later version, as published by the Free
- *   Software Foundation
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details
- *
- *   You should have received a copy of the GNU General Public
- *   License along with this program; if not, write to the
- *   Free Software Foundation, Inc.,
- *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *   Soplos Linux - Slackware Plasma splash screen
+ *   Compatible with KDE Plasma 6 / Qt 6
+ *   License: GPLv2+
  */
 
-import QtQuick 2.5
-import QtGraphicalEffects 1.0
+import QtQuick
 
 Image {
     id: root
     source: "images/background.png"
     fillMode: Image.PreserveAspectCrop
-    
+
     property int stage
-    
+
     onStageChanged: {
-        if (stage == 1) {
+        if (stage === 1) {
             introAnimation.running = true
-            preOpacityAnimation.from = 0;
-            preOpacityAnimation.to = 1;
-            preOpacityAnimation.running = true;
+            contentFade.from = 0
+            contentFade.to = 1
+            contentFade.running = true
         }
-        if (stage == 4) {
-            preOpacityAnimation.from = 1;
-            preOpacityAnimation.to = 0;
-            preOpacityAnimation.running = true;
-            pausa.start();
+        if (stage === 4) {
+            contentFade.from = 1
+            contentFade.to = 0
+            contentFade.running = true
+            pauseTimer.start()
         }
     }
 
+    // Content: logo centrado
     Item {
         id: content
-        anchors.rightMargin: 0
-        anchors.bottomMargin: 0
-        anchors.leftMargin: 0
-        anchors.topMargin: 0
         anchors.fill: parent
-        opacity: 1
+        opacity: 0
+
+        NumberAnimation {
+            id: contentFade
+            target: content
+            property: "opacity"
+            duration: 500
+            easing.type: Easing.InOutQuad
+        }
+
         TextMetrics {
             id: units
             text: "M"
             property int gridUnit: boundingRect.height
-            property int largeSpacing: units.gridUnit
-            property int smallSpacing: Math.max(2, gridUnit/4)
         }
 
         Image {
@@ -67,33 +57,35 @@ Image {
             sourceSize.height: size
         }
     }
-        
+
+    // Barra de progreso inferior
     Image {
         id: topRect
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.height
         source: "images/rectangle.svg"
+
         Rectangle {
             y: 232
             radius: 0
-            anchors.horizontalCenterOffset: 0
-            color: "#ffffff"
             anchors {
                 bottom: parent.bottom
                 bottomMargin: 50
                 horizontalCenter: parent.horizontalCenter
             }
             height: 2
-            width: height*170
+            width: height * 170
+            color: "#ffffff"
+
             Rectangle {
-                id: topRectRectangle
+                id: progressBar
                 radius: 1
                 anchors {
                     left: parent.left
                     top: parent.top
                     bottom: parent.bottom
                 }
-                width: (parent.width / 6) * (stage - 0.01)
+                width: (parent.width / 6) * Math.max(0, stage - 0.01)
                 color: "#4862ae"
                 Behavior on width {
                     PropertyAnimation {
@@ -105,33 +97,37 @@ Image {
         }
     }
 
+    // Animación de entrada del panel
     SequentialAnimation {
         id: introAnimation
         running: false
-
-        ParallelAnimation {
-            PropertyAnimation {
-                property: "y"
-                target: topRect
-                to: ((root.height / 3) * 2) - 170
-                duration: 2000
-                easing.type: Easing.InOutBack
-                easing.overshoot: 1.0
-            }
-            
+        PropertyAnimation {
+            property: "y"
+            target: topRect
+            to: ((root.height / 3) * 2) - 170
+            duration: 2000
+            easing.type: Easing.InOutBack
+            easing.overshoot: 1.0
         }
     }
 
     Timer {
-        id: pausa
-        interval: 1500; running: false; repeat: false;
-        onTriggered: root.viewLoadingText();
+        id: pauseTimer
+        interval: 1500
+        running: false
+        repeat: false
+        onTriggered: {
+            outFade.running = true
+        }
     }
 
-    function viewLoadingText() {
-        opacityAnimation.from = 0;
-        opacityAnimation.to = 1;
-        opacityAnimation.running = true;
+    NumberAnimation {
+        id: outFade
+        target: root
+        property: "opacity"
+        from: 1
+        to: 0
+        duration: 500
+        running: false
     }
-
 }
