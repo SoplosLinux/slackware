@@ -11,7 +11,8 @@ only what each option needs:
 
 ```sh
 wget https://github.com/SoplosLinux/slackware/raw/main/soplos-menu.sh
-bash soplos-menu.sh
+chmod +x soplos-menu.sh
+./soplos-menu.sh
 ```
 
 The first run installs it for good: the scripts go to
@@ -28,7 +29,7 @@ submenu.
 
 | Key | Entry | What it does |
 |---|---|---|
-| 1 | First steps | Runlevel 4, language, screen resolution, Spanish user folders, reset of the keyboard shortcuts |
+| 1 | First steps | Runlevel 4, language, keyboard layout (Console, Wayland and X11), screen resolution, Spanish user folders, reset of the keyboard shortcuts |
 | 2 | Packages (slackpkg) | Each step on its own: choose the mirror (the official redirector, or any of the mirrors slackpkg knows, by country, or an address you type), update (lists only), upgrade-all, install-new |
 | 3 | Clean Plasma | Preview or run the debloat, with or without the optional sections |
 | 4 | Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
@@ -37,6 +38,7 @@ submenu.
 | 7 | Users | List, create, give or take sudo, delete a user (refuses root, system users, logged-in users and the only regular user) |
 | 8 | Library scanner | Report of library packages nobody uses |
 | 9 | Diagnose Plasma | Missing libraries and QML modules |
+| V | Slackware version | Switch target branch between Slackware 15.0 and 16.0 / -current |
 | K | Kernel 6.8.9 | The build from the video (shown on Slackware 15 only) |
 | T | Tutorial | The Plymouth tutorial, in your language |
 | R | Download again | The latest scripts from GitHub |
