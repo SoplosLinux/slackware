@@ -95,13 +95,39 @@ ini_set() {
 echo "Checking that the init script patches apply (Slackware $REL)..."
 for name in rc.S rc.6; do
   file=$ROOT/etc/rc.d/$name
+
+  # If the file does not exist but a .new version is present, adopt it
+  if [ ! -e "$file" ] && [ -e "$file.new" ]; then
+    echo "  $name not found, but $name.new was found. Adopting $name.new..."
+    cp -p "$file.new" "$file"
+    chmod 755 "$file"
+  fi
+
   [ -e "$file" ] || die "$file not found."
   if grep -q "rc.plymouth" "$file"; then
     echo "  $name already patched, skipping"
     continue
   fi
-  (cd "${ROOT:-/}" && patch -p0 --dry-run -s < "$PATCHES/$name.patch") \
-    || die "$name does not match the Slackware $REL version this patch was made for. Nothing was changed."
+
+  if ! (cd "${ROOT:-/}" && patch -p0 --dry-run -s < "$PATCHES/$name.patch" 2>/dev/null); then
+    # If the dry-run failed on $file, check if a pending $file.new matches the patch
+    if [ -e "$file.new" ]; then
+      tmp=$(mktemp -d)
+      mkdir -p "$tmp/etc/rc.d"
+      cp -p "$file.new" "$tmp/etc/rc.d/$name"
+      if (cd "$tmp" && patch -p0 --dry-run -s < "$PATCHES/$name.patch" 2>/dev/null); then
+        echo "  $name does not match, but updated $name.new matches the patch."
+        echo "  Adopting $name.new (saving previous $name as $name.pre-plymouth)..."
+        backup "$file"
+        cp -p "$file.new" "$file"
+        chmod 755 "$file"
+        rm -rf "$tmp"
+        continue
+      fi
+      rm -rf "$tmp"
+    fi
+    die "$name does not match the Slackware $REL version this patch was made for. Nothing was changed."
+  fi
 done
 
 # 2. Theme, defaults and service script

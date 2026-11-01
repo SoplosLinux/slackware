@@ -122,6 +122,7 @@ tr_add p2 "Update: refresh the package lists (upgrades nothing)" "Update: actual
 tr_add p3 "Upgrade: upgrade all installed packages (slow)" "Upgrade: actualizar todos los paquetes instalados (lento)"
 tr_add p4 "Install-new: install packages added to Slackware" "Install-new: instalar los paquetes nuevos de Slackware"
 tr_add p5 "Show the mirror in use" "Mostrar el mirror en uso"
+tr_add p6 "Review/merge .new config files (slackpkg new-config)" "Revisar/aplicar archivos de configuración .new (slackpkg new-config)"
 tr_add p3_confirm "Upgrade every installed package with slackpkg?\n\nThis is the slow one: it can download several GB and take hours. It does not bring back packages you removed." "¿Actualizar todos los paquetes instalados con slackpkg?\n\nEs la parte lenta: puede descargar varios GB y tardar horas. No recupera los paquetes que hayas quitado."
 tr_add p4_confirm "Install the packages added to Slackware since the last update?\n\nPackages removed by the debloat can come back if Slackware lists them as new. Preview with the Clean Plasma option afterwards." "¿Instalar los paquetes añadidos a Slackware desde la última actualización?\n\nLos paquetes que quitó el debloat pueden volver si Slackware los marca como nuevos. Después puedes volver a pasar Limpiar Plasma."
 tr_add u_title "Users" "Usuarios"
@@ -464,7 +465,7 @@ menu_packages() {
   local c
   while true; do
     c=$(choose "$(t p_title)" "$(t p_text)" \
-      1 "$(t p1)" 2 "$(t p2)" 3 "$(t p3)" 4 "$(t p4)" 5 "$(t p5)" 0 "$(t back)")
+      1 "$(t p1)" 2 "$(t p2)" 3 "$(t p3)" 4 "$(t p4)" 5 "$(t p5)" 6 "$(t p6)" 0 "$(t back)")
     clear
     case "$c" in
       1) choose_mirror ;;
@@ -472,6 +473,7 @@ menu_packages() {
       3) confirm p3_confirm && run scripts/setup.firststeps upgrade ;;
       4) confirm p4_confirm && run scripts/setup.firststeps installnew ;;
       5) run scripts/setup.firststeps mirror ;;
+      6) run scripts/setup.firststeps new-config ;;
       0|"") return ;;
     esac
   done

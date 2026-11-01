@@ -153,6 +153,11 @@ action_update() {
 action_upgrade() {
   slackpkg -batch=on -default_answer=y upgrade-all
   echo "Done."
+  if [ -n "$(find "$ROOT/etc" -name '*.new' 2>/dev/null)" ]; then
+    echo
+    echo "Notice: pending .new configuration files were found in /etc."
+    echo "Run 'slackpkg new-config' (option 6 in Packages menu) to review or merge them."
+  fi
 }
 
 # Installs the packages added to Slackware since the last update. Packages you
@@ -160,6 +165,15 @@ action_upgrade() {
 action_installnew() {
   slackpkg -batch=on -default_answer=y install-new
   echo "Done."
+  if [ -n "$(find "$ROOT/etc" -name '*.new' 2>/dev/null)" ]; then
+    echo
+    echo "Notice: pending .new configuration files were found in /etc."
+    echo "Run 'slackpkg new-config' (option 6 in Packages menu) to review or merge them."
+  fi
+}
+
+action_newconfig() {
+  slackpkg new-config
 }
 
 # Gives sudo to a user that already exists (the one created by the installer):
@@ -623,6 +637,7 @@ case "${1:-}" in
   update)     action_update ;;
   upgrade)    action_upgrade ;;
   installnew) action_installnew ;;
+  new-config|newconfig) action_newconfig ;;
   users)      action_users ;;
   adduser)    action_adduser ;;
   unsudo)     action_unsudo ;;
