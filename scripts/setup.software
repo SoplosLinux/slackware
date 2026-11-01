@@ -99,7 +99,7 @@ configure_sbopkg() {
 }
 
 ensure_sbopkg_deps() {
-  local needed=(git patch linuxdoc-tools autoconf automake libtool gettext-tools pkgconf)
+  local needed=(git patch linuxdoc-tools autoconf automake libtool gettext-tools pkgconf check)
   local missing=() p
   for p in "${needed[@]}"; do
     is_installed "$p" || missing+=("$p")
@@ -261,12 +261,63 @@ alien_install() {
   rm -rf "$tmp"
 }
 
-# Flatpak needs appstream and the GTK portal, which Slackware itself ships
+# Flatpak and Discover need Slackware packages (appstream, GTK portal)
 require_slackware_deps() {
-  local p
-  for p in appstream xdg-desktop-portal-gtk; do
-    is_installed "$p" || die "$p is not installed. It comes with Slackware, install it with slackpkg."
+  local needed=(appstream xdg-desktop-portal-gtk)
+  local missing=() p
+  for p in "${needed[@]}"; do
+    is_installed "$p" || missing+=("$p")
   done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "Installing missing Slackware dependencies: ${missing[*]}..."
+    slackpkg -batch=on -default_answer=y install "${missing[@]}" || die "could not install: ${missing[*]}"
+  fi
+}
+
+# Builds kuserfeedback from KDE Frameworks (libKF6UserFeedbackCore.so.6) which
+# AlienBOB's Discover package requires on KDE Plasma 6.
+build_kuserfeedback() {
+  if [ -f "$ROOT/usr/lib64/libKF6UserFeedbackCore.so.6" ] || [ -f "$ROOT/usr/lib/libKF6UserFeedbackCore.so.6" ]; then
+    return 0
+  fi
+
+  echo "Building kuserfeedback (required by KDE Discover on Plasma 6)..."
+  local p
+  for p in cmake extra-cmake-modules; do
+    is_installed "$p" || slackpkg -batch=on -default_answer=y install "$p"
+  done
+
+  local tmp
+  tmp=$(mktemp -d)
+  local url="https://download.kde.org/stable/frameworks/6.6/kuserfeedback-6.6.0.tar.xz"
+  echo "Downloading kuserfeedback 6.6.0..."
+  download "$url" "$tmp/kuserfeedback.tar.xz" || die "could not download kuserfeedback."
+
+  tar -xf "$tmp/kuserfeedback.tar.xz" -C "$tmp"
+  local src="$tmp/kuserfeedback-6.6.0"
+  local libdir="lib"
+  [ "$(uname -m)" = "x86_64" ] && libdir="lib64"
+
+  echo "Configuring and compiling kuserfeedback..."
+  cmake -B "$src/build" -S "$src" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR="$libdir" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DENABLE_DOCS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DENABLE_CONSOLE=OFF \
+    -DENABLE_CLI=OFF || die "cmake configuration of kuserfeedback failed."
+
+  cmake --build "$src/build" -j"$(nproc)" || die "compiling kuserfeedback failed."
+
+  local pkgdir="$tmp/pkg"
+  mkdir -p "$pkgdir"
+  DESTDIR="$pkgdir" cmake --install "$src/build" || die "installing kuserfeedback to temp dir failed."
+
+  (cd "$pkgdir" && makepkg -l y -c n "$tmp/kuserfeedback-6.6.0-$(uname -m)-1_soplos.txz") || die "makepkg of kuserfeedback failed."
+  installpkg "$tmp/kuserfeedback-6.6.0-$(uname -m)-1_soplos.txz" || die "installpkg of kuserfeedback failed."
+  rm -rf "$tmp"
+  echo "kuserfeedback successfully built and installed."
 }
 
 action_flatpak() {
@@ -280,6 +331,7 @@ action_flatpak() {
 
 action_discover() {
   action_flatpak
+  build_kuserfeedback
   alien_install discover
   echo "Discover installed. It starts from the application menu; if it shows no Flatpak sources, log out and in."
 }

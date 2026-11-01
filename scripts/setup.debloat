@@ -49,7 +49,7 @@ PROTECTED=" llvm mesa glibc glibc-solibs python3 perl gcc gcc-g++ make binutils
  plasma-workspace plasma-desktop kwin kwin-x11 libplasma sddm xorg-server
  samba vulkan-sdk pkgtools sysvinit-scripts aaa_base aaa_libraries grub
  elogind pam shadow coreutils bash util-linux dolphin konsole kate okular
- gwenview ark spectacle kcalc systemsettings elisa dragon guile linuxdoc-tools "
+ gwenview ark spectacle kcalc systemsettings elisa dragon guile linuxdoc-tools check "
 
 # Dependencies that are in the map but only concern a language binding or a
 # helper tool nobody uses, so they must not keep a package installed:
@@ -169,7 +169,7 @@ add_section kde-extra on "Other KDE applications and developer tools" \
 # needs (for example gcc-gfortran for openblas, or lua for gnuplot).
 add_section dev on "Development tools beyond a basic C and C++ toolchain" \
   AMF-headers autoconf-archive cargo-c \
-  cargo-vendor-filterer cbindgen ccache check clinfo clisp cmake corrosion \
+  cargo-vendor-filterer cbindgen ccache clinfo clisp cmake corrosion \
   cscope cvs Cython ddd dev86 distcc doxygen gcc-gcobol gcc-gdc gcc-gfortran \
   gcc-gm2 gcc-gnat gcc-go gcc-objc gcc-rust gdb gnucobol \
   google-go-lang googletest gperf gyp help2man icecream indent intltool jq \
