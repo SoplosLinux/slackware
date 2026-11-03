@@ -1,4 +1,2 @@
-# Left out of the archive that GitHub generates for downloads, so the menu
-# only fetches scripts and documentation (about 2 MB instead of 27 MB).
-artwork export-ignore
+# Left out of the archive that GitHub generates for downloads
 plasma-splash export-ignore

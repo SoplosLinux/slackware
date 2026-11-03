@@ -575,7 +575,6 @@ install_plasma_splash() {
 
 install_soplos_wallpapers() {
   local dest=/usr/share/wallpapers
-  local raw_base="https://raw.githubusercontent.com/$OWNER_REPO/$REF"
   local wp_local="$REPO/artwork/wallpapers"
 
   echo "Installing wallpapers into $dest..."
@@ -584,18 +583,20 @@ install_soplos_wallpapers() {
   # Clean up any previously created broken package subdirectories
   rm -rf "$dest"/Soplos\ Wallpaper* "$dest"/Soplos-Wallpaper*
 
-  local wp_names=("Wallpaper 01.jpg" "Wallpaper 02.jpg" "Wallpaper 03.jpg" "Wallpaper 04.jpg")
-  for wp in "${wp_names[@]}"; do
-    local out_name="Soplos-$wp"
-    if [ -f "$wp_local/$wp" ]; then
-      cp "$wp_local/$wp" "$dest/$out_name"
-    else
-      local wp_url="$raw_base/artwork/wallpapers/$(echo "$wp" | sed 's/ /%20/g')"
-      echo "  Downloading $wp..."
-      download "$wp_url" "$dest/$out_name" || echo "Warning: could not download $wp"
-    fi
-    echo "  Installed: $dest/$out_name"
-  done
+  if [ -d "$wp_local" ]; then
+    for f in "$wp_local"/*; do
+      [ -f "$f" ] || continue
+      local wp
+      wp=$(basename "$f")
+      local out_name="Soplos-$wp"
+      cp "$f" "$dest/$out_name"
+      echo "  Installed: $dest/$out_name"
+    done
+  else
+    echo "Error: $wp_local not found." >&2
+    pause
+    return 1
+  fi
 
   say s7_done
   pause
