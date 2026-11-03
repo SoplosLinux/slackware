@@ -80,7 +80,7 @@ tr_add mP "Packages (slackpkg): mirror, update, upgrade, install-new" "Paquetes 
 tr_add mU "Users: list, create, sudo, delete" "Usuarios: listar, crear, sudo, borrar"
 tr_add m3 "Install software: sbopkg, Plymouth, VMware tools, Flatpak, Discover" "Instalar software: sbopkg, Plymouth, VMware tools, Flatpak, Discover"
 tr_add m4 "Plymouth boot splash" "Splash de arranque Plymouth"
-tr_add m5 "GRUB menu and kernel-update hook" "Menú de GRUB y hook de actualización del kernel"
+tr_add m5 "GRUB: bootloader, menu and kernel-update hook" "GRUB: arranque, menú y hook de actualización del kernel"
 tr_add m6 "Find library packages nobody uses (report only)" "Buscar paquetes de librerías que nadie usa (solo informe)"
 tr_add m7 "Build kernel 6.8.9 (Slackware 15)" "Compilar el kernel 6.8.9 (Slackware 15)"
 tr_add m8 "Read the Plymouth tutorial" "Leer el tutorial de Plymouth"
@@ -167,9 +167,12 @@ tr_add s8_done "Icons installed. Right-click the application menu button → Con
 
 tr_add g_title "GRUB" "GRUB"
 tr_add g_text "Boot menu" "Menú de arranque"
+tr_add g0 "Install GRUB bootloader for UEFI (x86_64)" "Instalar el arranque GRUB para UEFI (x86_64)"
+tr_add g0_confirm "Install GRUB for UEFI (x86_64)?\n\nRuns:\ngrub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=efi\nand regenerates /boot/grub/grub.cfg." "¿Instalar el arranque GRUB para UEFI (x86_64)?\n\nEjecuta:\ngrub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=efi\ny regenera /boot/grub/grub.cfg."
+tr_add g0_done "GRUB installed and configured for UEFI." "GRUB instalado y configurado para UEFI."
 tr_add g1 "Regenerate the GRUB menu now" "Regenerar el menú de GRUB ahora"
 tr_add g2 "Install the hook that regenerates it on kernel updates (Slackware 16)" "Instalar el hook que lo regenera al actualizar el kernel (Slackware 16)"
-tr_add g_nohook "This system has no /etc/geninitrd.d, which only Slackware 16 provides. Use the first option after installing a kernel." "Este sistema no tiene /etc/geninitrd.d, que solo existe en Slackware 16. Usa la primera opción después de instalar un kernel."
+tr_add g_nohook "This system has no /etc/geninitrd.d, which only Slackware 16 provides. Regenerate the GRUB menu manually after installing a kernel." "Este sistema no tiene /etc/geninitrd.d, que solo existe en Slackware 16. Regenera el menú de GRUB manualmente después de instalar un kernel."
 tr_add g_confirm "Install /etc/geninitrd.d/post-install/grub-update.sh?\n\nIt regenerates the GRUB menu every time a kernel is installed." "¿Instalar /etc/geninitrd.d/post-install/grub-update.sh?\n\nRegenera el menú de GRUB cada vez que se instala un kernel."
 tr_add g_done "Hook installed." "Hook instalado."
 tr_add g3 "Install the Slackware GRUB theme" "Instalar el tema de GRUB de Slackware"
@@ -662,11 +665,17 @@ install_soplos_icons() {
 menu_grub() {
   local c
   while true; do
-    c=$(choose "$(t g_title)" "$(t g_text)" 1 "$(t g1)" 2 "$(t g2)" 3 "$(t g3)" 0 "$(t back)")
+    c=$(choose "$(t g_title)" "$(t g_text)" \
+      1 "$(t g0)" \
+      2 "$(t g1)" \
+      3 "$(t g2)" \
+      4 "$(t g3)" \
+      0 "$(t back)")
     clear
     case "$c" in
-      1) run 16/etc/geninitrd.d/post-install/grub-update.sh ;;
-      2)
+      1) confirm g0_confirm && install_grub_efi ;;
+      2) run 16/etc/geninitrd.d/post-install/grub-update.sh ;;
+      3)
         if [ ! -d /etc/geninitrd.d ]; then
           say g_nohook
         elif confirm g_confirm; then
@@ -676,10 +685,56 @@ menu_grub() {
           say g_done
         fi
         ;;
-      3) confirm g3_confirm && install_grub_theme ;;
+      4) confirm g3_confirm && install_grub_theme ;;
       0|"") return ;;
     esac
   done
+}
+
+install_grub_efi() {
+  if ! command -v grub-install > /dev/null 2>&1; then
+    echo "Error: grub-install not found. Is GRUB installed?" >&2
+    pause
+    return 1
+  fi
+
+  if [ ! -d /sys/firmware/efi ]; then
+    echo "Warning: /sys/firmware/efi not found. System may not be booted in UEFI mode." >&2
+  fi
+
+  mkdir -p /boot/efi
+  if ! mountpoint -q /boot/efi 2>/dev/null && ! grep -qs '[[:space:]]/boot/efi[[:space:]]' /proc/mounts; then
+    if grep -qs '[[:space:]]/boot/efi[[:space:]]' /etc/fstab; then
+      echo "Mounting /boot/efi from /etc/fstab..."
+      mount /boot/efi 2>/dev/null || true
+    fi
+  fi
+
+  if ! mountpoint -q /boot/efi 2>/dev/null && ! grep -qs '[[:space:]]/boot/efi[[:space:]]' /proc/mounts; then
+    echo "Warning: /boot/efi does not appear to be a mounted partition."
+    echo "Make sure your EFI system partition (ESP) is mounted at /boot/efi."
+    echo
+  fi
+
+  echo "Installing GRUB for UEFI..."
+  if grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=efi; then
+    echo
+    echo "GRUB EFI binary installed successfully."
+    echo "Regenerating the GRUB menu configuration..."
+    mkdir -p /boot/grub
+    if command -v update-grub > /dev/null 2>&1; then
+      update-grub
+    elif command -v grub-mkconfig > /dev/null 2>&1; then
+      grub-mkconfig -o /boot/grub/grub.cfg
+      [ -f /boot/efi/EFI/Slackware/grub.cfg ] && grub-mkconfig -o /boot/efi/EFI/Slackware/grub.cfg
+      [ -f /boot/efi/EFI/efi/grub.cfg ] && grub-mkconfig -o /boot/efi/EFI/efi/grub.cfg
+    fi
+    say g0_done
+  else
+    echo "Error: grub-install failed." >&2
+    pause
+    return 1
+  fi
 }
 
 install_grub_theme() {
@@ -710,8 +765,8 @@ install_grub_theme() {
   else
     echo "Warning: $grubdef not found. Add GRUB_THEME=$dest/theme.txt by hand."
   fi
-  if command -v grub-update > /dev/null 2>&1; then
-    grub-update
+  if command -v update-grub > /dev/null 2>&1; then
+    update-grub
   elif command -v grub-mkconfig > /dev/null 2>&1; then
     mkdir -p /boot/grub
     grub-mkconfig -o /boot/grub/grub.cfg

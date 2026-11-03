@@ -34,7 +34,7 @@ submenu.
 | 3 | Clean Plasma | Preview or run the debloat, with or without the optional sections |
 | 4 | Install software | sbopkg, Plymouth, open-vm-tools, Flatpak with Flathub, KDE Discover |
 | 5 | Plymouth boot splash | Installer for Slackware 15 or 16, detected from `/etc/slackware-version` |
-| 6 | GRUB | Regenerate the menu now, or install the hook that does it on kernel updates (Slackware 16) |
+| 6 | GRUB | Install UEFI bootloader, regenerate the menu, install kernel hook (Slackware 16), or install theme |
 | 7 | Users | List, create, give or take sudo, delete a user (refuses root, system users, logged-in users and the only regular user) |
 | 8 | Library scanner | Report of library packages nobody uses |
 | 9 | Diagnose Plasma | Missing libraries and QML modules |

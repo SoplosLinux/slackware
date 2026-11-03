@@ -285,8 +285,8 @@ fi
 # 8. Regenerate the GRUB menu now
 if [ -z "$ROOT" ]; then
   echo "Regenerating the GRUB menu..."
-  if command -v grub-update > /dev/null 2>&1; then
-    grub-update
+  if command -v update-grub > /dev/null 2>&1; then
+    update-grub
   elif command -v grub-mkconfig > /dev/null 2>&1; then
     mkdir -p /boot/grub
     grub-mkconfig -o /boot/grub/grub.cfg
